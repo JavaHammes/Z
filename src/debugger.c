@@ -4,73 +4,78 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/ptrace.h>
-#include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
+#include "debuggee.h"
 #include "debugger.h"
-#include "macros.h"
+
+void init_dbg(debugger *dbg, const char *debuggee_name) {
+        dbg->dbgee.pid = -1;
+        dbg->dbgee.name = debuggee_name;
+        dbg->dbgee.state = IDLE;
+        dbg->state = DETACHED;
+}
 
 int start_dbg(debugger *dbg) {
-        printf("Starting debugger.\n");
-        dbg->debugger_state_flag = DEBUGGER_RUNNING;
-
-        if (start_target(dbg) != 0) {
-                (void)(fprintf(stderr, "Failed to start target: %s", dbg->target_name));
+        if (start_debuggee(dbg) != 0) {
+                (void)(fprintf(stderr, "Failed to start debuggee: %s",
+                               dbg->dbgee.name));
                 return EXIT_FAILURE;
         }
 
-        if (trace_target(dbg) != 0) {
-                (void)(fprintf(stderr, "Failed to trace target: %s", dbg->target_name));
+        if (trace_debuggee(dbg) != 0) {
+                (void)(fprintf(stderr, "Failed to trace debuggee: %s",
+                               dbg->dbgee.name));
                 return EXIT_FAILURE;
         }
 
-        printf("Finished tracing target.\n");
         return EXIT_SUCCESS;
 }
 
 void free_dbg(debugger *dbg) {
-        if (dbg->debugger_state_flag == DEBUGGER_ATTACHED) {
-                if (ptrace(PTRACE_DETACH, dbg->target_pid, NULL, NULL) == -1) {
+        // Note: Because we are using PTRACE_O_EXITKILL the debuggee should also
+        // be killed when we detach
+        if (dbg->state == ATTACHED) {
+                if (ptrace(PTRACE_DETACH, dbg->dbgee.pid, NULL, NULL) == -1) {
                         (void)(fprintf(
                             stderr,
                             "Failed to detach from child with PID %d: %s\n",
-                            dbg->target_pid, strerror(errno)));
+                            dbg->dbgee.pid, strerror(errno)));
                 } else {
                         printf("Detached from child with PID: %d\n",
-                               dbg->target_pid);
+                               dbg->dbgee.pid);
                 }
         }
 
-        if ((dbg->target_state_flag == TARGET_RUNNING) ||
-            (dbg->target_state_flag == TARGET_STOPPED)) {
-                if (kill(dbg->target_pid, SIGKILL) == -1) {
+        if ((dbg->dbgee.state == RUNNING) || (dbg->dbgee.state == STOPPED)) {
+                if (kill(dbg->dbgee.pid, SIGKILL) == -1) {
                         (void)(fprintf(stderr,
                                        "Failed to kill child with PID %d: %s\n",
-                                       dbg->target_pid, strerror(errno)));
+                                       dbg->dbgee.pid, strerror(errno)));
                 } else {
                         printf("Killed child with PID: %d\nExiting...\n",
-                               dbg->target_pid);
+                               dbg->dbgee.pid);
                 }
-        } else if (dbg->target_state_flag == TARGET_TERMINATED) {
+        } else if (dbg->dbgee.state == TERMINATED) {
                 printf("Child with PID %d has already terminated.\n",
-                       dbg->target_pid);
+                       dbg->dbgee.pid);
         }
 
-        dbg->target_pid = -1;
-        dbg->debugger_state_flag = DEBUGGER_IDLE;
-        dbg->target_state_flag = TARGET_TERMINATED;
+        dbg->dbgee.pid = -1;
+        dbg->dbgee.state = TERMINATED;
+        dbg->state = DETACHED;
 }
 
 /*
- * Sets target_pid
+ * Sets dbge->dbgee.pid
  *      -> Success: Child pid
  *      -> Failure: -1
- * Sets target_state_flag
- *      -> Success: TARGET_RUNNING
- *      -> Failure: TARGET_TERMINATED
+ * Sets dbg->dbgee.state
+ *      -> Success: RUNNING
+ *      -> Failure: TERMINATED
  */
-int start_target(debugger *dbg) {
+int start_debuggee(debugger *dbg) {
         pid_t pid = fork();
         if (pid == -1) {
                 perror("fork");
@@ -82,18 +87,18 @@ int start_target(debugger *dbg) {
                         perror("ptrace");
                         exit(EXIT_FAILURE);
                 }
-                execl(dbg->target_name, dbg->target_name, NULL);
+                execl(dbg->dbgee.name, dbg->dbgee.name, NULL);
                 perror("execl");
                 exit(EXIT_FAILURE);
         } else { // Parent process
-                dbg->target_pid = pid;
-                dbg->target_state_flag = TARGET_RUNNING;
+                dbg->dbgee.pid = pid;
+                dbg->dbgee.state = RUNNING;
 
                 int status;
-                if (waitpid(dbg->target_pid, &status, 0) == -1) {
+                if (waitpid(dbg->dbgee.pid, &status, 0) == -1) {
                         perror("waitpid");
-                        dbg->target_pid = -1;
-                        dbg->target_state_flag = TARGET_TERMINATED;
+                        dbg->dbgee.pid = -1;
+                        dbg->dbgee.state = TERMINATED;
                         return EXIT_FAILURE;
                 }
 
@@ -102,49 +107,39 @@ int start_target(debugger *dbg) {
                             stderr,
                             "Child process exited prematurely with status %d\n",
                             WEXITSTATUS(status)));
-                        dbg->target_pid = -1;
-                        dbg->target_state_flag = TARGET_TERMINATED;
+                        dbg->dbgee.pid = -1;
+                        dbg->dbgee.state = TERMINATED;
                         return EXIT_FAILURE;
                 }
 
-                if (ptrace(PTRACE_SETOPTIONS, dbg->target_pid, 0,
-                           PTRACE_O_EXITKILL | PTRACE_O_TRACESYSGOOD) == -1) {
+                if (ptrace(PTRACE_SETOPTIONS, dbg->dbgee.pid, 0,
+                           PTRACE_O_EXITKILL) == -1) {
                         perror("ptrace SETOPTIONS");
-                        dbg->target_pid = -1;
-                        dbg->target_state_flag = TARGET_TERMINATED;
+                        dbg->dbgee.pid = -1;
+                        dbg->dbgee.state = TERMINATED;
                         return EXIT_FAILURE;
                 }
 
                 // In the future we might not want to continue here
-                if (ptrace(PTRACE_CONT, dbg->target_pid, NULL, NULL) == -1) {
+                if (ptrace(PTRACE_CONT, dbg->dbgee.pid, NULL, NULL) == -1) {
                         perror("ptrace CONT after SETOPTIONS");
-                        dbg->target_pid = -1;
-                        dbg->target_state_flag = TARGET_TERMINATED;
+                        dbg->dbgee.pid = -1;
+                        dbg->dbgee.state = TERMINATED;
                         return EXIT_FAILURE;
                 }
 
-                printf("Child process started with PID %d\n", dbg->target_pid);
+                printf("Child process started with PID %d\n", dbg->dbgee.pid);
         }
 
         return EXIT_SUCCESS;
 }
 
-/*
- * Sets debugger_state_flag
- *      -> Default:            DEBUGGER_ATTACHED
- *      -> Target-Termination: DEBUGGER_RUNNING
- * Sets target_state_flag
- *      -> Termination: TARGET_TERMINATED
- *      -> Stopsignal:  TARGET_STOPPED
- *      -> Continue:    TARGET_RUNNING
- */
-int trace_target(debugger *dbg) {
-        printf("Entering trace_target.\n");
-        dbg->debugger_state_flag = DEBUGGER_ATTACHED;
+int trace_debuggee(debugger *dbg) {
+        dbg->state = ATTACHED;
 
-        while (dbg->debugger_state_flag == DEBUGGER_ATTACHED) {
+        while (dbg->state == ATTACHED) {
                 int status;
-                pid_t pid = waitpid(dbg->target_pid, &status, 0);
+                pid_t pid = waitpid(dbg->dbgee.pid, &status, 0);
                 if (pid == -1) {
                         if (errno == EINTR) {
                                 continue; // Interrupted by signal, retry
@@ -156,23 +151,23 @@ int trace_target(debugger *dbg) {
                 if (WIFEXITED(status)) {
                         printf("Child %d exited with status %d.\n", pid,
                                WEXITSTATUS(status));
-                        dbg->debugger_state_flag = DEBUGGER_RUNNING;
-                        dbg->target_state_flag = TARGET_TERMINATED;
+                        dbg->state = DETACHED;
+                        dbg->dbgee.state = TERMINATED;
                         break;
                 }
 
                 if (WIFSIGNALED(status)) {
                         printf("Child %d was killed by signal %d.\n", pid,
                                WTERMSIG(status));
-                        dbg->debugger_state_flag = DEBUGGER_RUNNING;
-                        dbg->target_state_flag = TARGET_TERMINATED;
+                        dbg->state = DETACHED;
+                        dbg->dbgee.state = TERMINATED;
                         break;
                 }
 
                 if (WIFSTOPPED(status)) {
                         int sig = WSTOPSIG(status);
                         printf("Child %d stopped by signal %d.\n", pid, sig);
-                        dbg->target_state_flag = TARGET_STOPPED;
+                        dbg->dbgee.state = STOPPED;
 
                         // TODO: Handle specific signals if needed
                         // For example, handle breakpoints or single-stepping
@@ -184,7 +179,7 @@ int trace_target(debugger *dbg) {
                         }
 
                         printf("Continued child process %d.\n", pid);
-                        dbg->target_state_flag = TARGET_RUNNING;
+                        dbg->dbgee.state = RUNNING;
                 }
 
                 // TODO: Implement a mechanism to break the loop, such as
