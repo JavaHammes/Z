@@ -1,0 +1,7 @@
+db313c9 Method to print help and improved command handling
+fe875ec Method to print help and improved command handling
+a099ce7 Introduce new command types and differentiate between commands that get executed during the execution of the debuggee and those that change the state of the debugger itself
+03914fd Put start- and trace- debuggee in a while true loop to simulate debugger loop
+cbb4ce3 Rename command_type to command_t
+5f93f7e User Input run: continue executing debuggee
+d737422 Introduction of a debuggee struct. This will be neccessary for handling specific actions on the debuggee more easily. For example: - run(dbgee); - stop(dbgee); - continue(dbgee); etc.

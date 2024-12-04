@@ -1,15 +1,23 @@
 // NOLINTBEGIN(misc-include-cleaner)
 
+<<<<<<< HEAD
 #include <unistd.h>
+=======
+#include "debuggee.h"
+#include "debugger.h"
+>>>>>>> d737422 (Introduction of a debuggee struct.)
 
 #include <criterion/criterion.h>
 #include <criterion/redirect.h>
 
 #include "test_macros.h"
 
+<<<<<<< HEAD
 #include "debuggee.h"
 #include "debugger.h"
 
+=======
+>>>>>>> d737422 (Introduction of a debuggee struct.)
 #ifndef MOCK_DEBUGGEE_PATH
 #define MOCK_DEBUGGEE_PATH "../bin/mock_target"
 #endif
@@ -19,6 +27,7 @@ void redirect_all_stdout(void) {
         cr_redirect_stderr();
 }
 
+<<<<<<< HEAD
 static int stdin_pipe_fd[2];
 
 void setup_stdin_pipe(void) {
@@ -49,6 +58,12 @@ Test(debugger, start_debuggee_success) {
         debugger dbg;
         init_debugger(&dbg, MOCK_DEBUGGEE_PATH);
 
+=======
+Test(debugger, start_debuggee_success) {
+        debugger dbg;
+        init_dbg(&dbg, MOCK_DEBUGGEE_PATH);
+
+>>>>>>> d737422 (Introduction of a debuggee struct.)
         int result = start_debuggee(&dbg);
         cr_assert_eq(result, 0, "start_debuggee failed with return value %d",
                      result);
@@ -60,20 +75,29 @@ Test(debugger, start_debuggee_success) {
         free_debugger(&dbg);
 }
 
+<<<<<<< HEAD
 Test(debugger, trace_debuggee_success, .init = setup_stdin_pipe) {
         debugger dbg;
         init_debugger(&dbg, MOCK_DEBUGGEE_PATH);
+=======
+Test(debugger, trace_debuggee_success, .init = redirect_all_stdout) {
+        debugger dbg;
+        init_dbg(&dbg, MOCK_DEBUGGEE_PATH);
+>>>>>>> d737422 (Introduction of a debuggee struct.)
 
         int start_result = start_debuggee(&dbg);
         cr_assert_eq(start_result, 0,
                      "start_debuggee failed with return value %d",
                      start_result);
 
+<<<<<<< HEAD
         const char *input = "run\n";
         ssize_t bytes_written = write(stdin_pipe_fd[1], input, strlen(input));
         cr_assert_eq(bytes_written, (ssize_t)strlen(input),
                      "Failed to write to stdin");
 
+=======
+>>>>>>> d737422 (Introduction of a debuggee struct.)
         int trace_result = trace_debuggee(&dbg);
         cr_assert_eq(trace_result, 0,
                      "trace_debuggee failed with return value %d",
@@ -89,10 +113,16 @@ Test(debugger, trace_debuggee_success, .init = setup_stdin_pipe) {
         free_debugger(&dbg);
 }
 
+<<<<<<< HEAD
 Test(debugger, free_debugger_kill_running_debuggee,
      .init = redirect_all_stdout) {
         debugger dbg;
         init_debugger(&dbg, MOCK_DEBUGGEE_PATH);
+=======
+Test(debugger, free_dbg_kill_running_debuggee, .init = redirect_all_stdout) {
+        debugger dbg;
+        init_dbg(&dbg, MOCK_DEBUGGEE_PATH);
+>>>>>>> d737422 (Introduction of a debuggee struct.)
 
         int start_result = start_debuggee(&dbg);
         cr_assert_eq(start_result, 0,
@@ -102,6 +132,7 @@ Test(debugger, free_debugger_kill_running_debuggee,
         free_debugger(&dbg);
 
         cr_assert_eq(dbg.dbgee.pid, -1,
+<<<<<<< HEAD
                      "Debuggee PID should be reset after free_debugger.");
         cr_assert_eq(
             dbg.dbgee.state, TERMINATED,
@@ -109,6 +140,14 @@ Test(debugger, free_debugger_kill_running_debuggee,
         cr_assert_eq(
             dbg.state, DETACHED,
             "Debugger state flag should be DETACHED after free_debugger.");
+=======
+                     "Debuggee PID should be reset after free_dbg.");
+        cr_assert_eq(
+            dbg.dbgee.state, TERMINATED,
+            "Debuggee state flag should be TERMINATED after free_dbg.");
+        cr_assert_eq(dbg.state, DETACHED,
+                     "Debugger state flag should be DETACHED after free_dbg.");
+>>>>>>> d737422 (Introduction of a debuggee struct.)
 }
 
 // NOLINTEND(misc-include-cleaner)
