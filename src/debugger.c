@@ -82,7 +82,6 @@ int start_debuggee(debugger *dbg) {
         } else { // Parent process
                 dbg->dbgee.pid = pid;
                 dbg->dbgee.state = RUNNING;
-
                 printf("Child process started with PID %d\n", dbg->dbgee.pid);
         }
 
