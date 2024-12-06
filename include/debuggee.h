@@ -14,3 +14,8 @@ typedef struct debuggee {
         const char *name;     /**< Name or path of the debuggee executable */
         debuggee_state state; /**< Current state of the debuggee process */
 } debuggee;
+
+int Run(debuggee *dbgee);
+int Terminate(debuggee *dbgee);
+int Break(debuggee *dbgee);
+int Continue(debuggee *dbgee);

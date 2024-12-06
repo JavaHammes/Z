@@ -9,9 +9,10 @@ typedef struct debugger {
         debugger_state state; /**< Current state of the debugger process */
 } debugger;
 
-void init_dbg(debugger *dbg, const char *debuggee_name);
-int start_dbg(debugger *dbg);
-void free_dbg(debugger *dbg);
+void init_debugger(debugger *dbg, const char *debuggee_name);
+void free_debugger(debugger *dbg);
 
 int start_debuggee(debugger *dbg);
 int trace_debuggee(debugger *dbg);
+
+int read_and_handle_user_command(debugger *dbg);

@@ -20,13 +20,15 @@ set(CMAKE_C_EXTENSIONS OFF)
 add_compile_definitions(_POSIX_C_SOURCE=200809L)
 
 set(CMAKE_C_COMPILER gcc)
-set(CMAKE_C_FLAGS "-Wall -Wextra -pedantic")
+set(CMAKE_C_FLAGS "-Wall -Wextra -pedantic -DENABLE_TESTING_FLAG")
 set(CMAKE_C_FLAGS_DEBUG "-g -O0")
 set(CMAKE_C_FLAGS_RELEASE "-Os")
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 add_library(z_lib STATIC
     ${SRC_DIR}/debugger.c
+    ${SRC_DIR}/debugger_commands.c
+    ${SRC_DIR}/debuggee.c
 )
 
 target_include_directories(z_lib PUBLIC
