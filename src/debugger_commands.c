@@ -2,7 +2,7 @@
 
 #include "debugger_commands.h"
 
-command_type get_command_type(const char *command) {
+command_t get_command_type(const char *command) {
         if (strcmp(command, "run") == 0) {
                 return CMD_RUN;
         }

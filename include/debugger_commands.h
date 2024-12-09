@@ -6,6 +6,6 @@ typedef enum {
         CMD_STEP,
         CMD_TERMINATE,
         CMD_UNKNOWN
-} command_type;
+} command_t;
 
-command_type get_command_type(const char *command);
+command_t get_command_type(const char *command);

@@ -179,7 +179,7 @@ int read_and_handle_user_command(debugger *dbg) {
 }
 
 void handle_user_input(debugger *dbg, char *command) {
-        command_type cmd_type = get_command_type(command);
+        command_t cmd_type = get_command_type(command);
 
         switch (cmd_type) {
         case CMD_RUN:
