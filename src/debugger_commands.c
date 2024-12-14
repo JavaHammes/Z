@@ -3,17 +3,24 @@
 #include "debugger_commands.h"
 
 command_t get_command_type(const char *command) {
+        if (strcmp(command, "help") == 0) {
+                return CLI_HELP;
+        }
+        if (strcmp(command, "exit") == 0) {
+                return CLI_EXIT;
+        }
         if (strcmp(command, "run") == 0) {
-                return CMD_RUN;
+                return DBG_RUN;
         }
         if (strcmp(command, "continue") == 0 || strcmp(command, "cont") == 0) {
-                return CMD_CONTINUE;
+                return DBG_CONTINUE;
         }
         if (strcmp(command, "step") == 0) {
-                return CMD_STEP;
+                return DBG_STEP;
         }
-        if (strcmp(command, "quit") == 0 || strcmp(command, "exit") == 0) {
-                return CMD_TERMINATE;
+        if (strcmp(command, "quit") == 0) {
+                return DBG_TERMINATE;
         }
-        return CMD_UNKNOWN;
+
+        return UNKNOWN;
 }
