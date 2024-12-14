@@ -13,7 +13,8 @@
 #include "debugger.h"
 #include "debugger_commands.h"
 
-void handle_user_input(debugger *dbg, char *command);
+int handle_user_input(debugger *dbg, command_t cmd_type, char *command);
+void print_help(void);
 
 void init_debugger(debugger *dbg, const char *debuggee_name) {
         dbg->dbgee.pid = -1;
@@ -43,8 +44,7 @@ void free_debugger(debugger *dbg) {
                                        "Failed to kill child with PID %d: %s\n",
                                        dbg->dbgee.pid, strerror(errno)));
                 } else {
-                        printf("Killed child with PID: %d\nExiting...\n",
-                               dbg->dbgee.pid);
+                        printf("Killed child with PID: %d\n", dbg->dbgee.pid);
                 }
         } else if (dbg->dbgee.state == TERMINATED) {
                 printf("Child with PID %d has already terminated.\n",
@@ -56,14 +56,6 @@ void free_debugger(debugger *dbg) {
         dbg->state = DETACHED;
 }
 
-/*
- * Sets dbge->dbgee.pid
- *      -> Success: Child pid
- *      -> Failure: -1
- * Sets dbg->dbgee.state
- *      -> Success: RUNNING
- *      -> Failure: TERMINATED
- */
 int start_debuggee(debugger *dbg) {
         pid_t pid = fork();
         if (pid == -1) {
@@ -149,49 +141,83 @@ int trace_debuggee(debugger *dbg) {
 int read_and_handle_user_command(debugger *dbg) {
         char *command = NULL;
         size_t len = 0;
+        ssize_t read;
 
-        printf("Z: ");
-        (void)(fflush(stdout));
+        while (true) {
+                printf("Z: ");
+                (void)(fflush(stdout));
+                read = getline(&command, &len, stdin);
+                if (read == -1) {
+                        if (feof(stdin)) {
+                                free(command);
+                                free_debugger(dbg);
+                                exit(0);
+                        } else {
+                                perror("getline");
+                                printf("Failed to read command. Continuing "
+                                       "execution.\n");
+                        }
 
-        if (getline(&command, &len, stdin) == -1) {
-                if (feof(stdin)) {
-                        printf("EOF received. Continuing execution.\n");
-                } else {
-                        perror("getline");
-                        printf(
-                            "Failed to read command. Continuing execution.\n");
+                        free(command);
+
+                        if (ptrace(PTRACE_CONT, dbg->dbgee.pid, NULL, NULL) ==
+                            -1) {
+                                perror("ptrace CONT");
+                                return EXIT_FAILURE;
+                        }
+
+                        dbg->dbgee.state = RUNNING;
+                        return EXIT_SUCCESS;
                 }
-                free(command);
-                if (ptrace(PTRACE_CONT, dbg->dbgee.pid, NULL, NULL) == -1) {
-                        perror("ptrace CONT");
-                        return EXIT_FAILURE;
+
+                // Remove trailing newline character
+                command[strcspn(command, "\n")] = '\0';
+
+                command_t cmd_type = get_command_type(command);
+
+                if (handle_user_input(dbg, cmd_type, command) == EXIT_SUCCESS) {
+                        break;
                 }
-                dbg->dbgee.state = RUNNING;
-                return EXIT_SUCCESS;
         }
-
-        command[strcspn(command, "\n")] = '\0';
-
-        handle_user_input(dbg, command);
 
         free(command);
         return EXIT_SUCCESS;
 }
 
-void handle_user_input(debugger *dbg, char *command) {
-        command_t cmd_type = get_command_type(command);
-
+int handle_user_input(debugger *dbg, command_t cmd_type, char *command) {
         switch (cmd_type) {
-        case CMD_RUN:
+        case UNKNOWN:
+                printf("Unknown command: %s\n", command);
+                return EXIT_FAILURE;
+
+        case CLI_HELP:
+                print_help();
+                return EXIT_FAILURE;
+
+        case CLI_EXIT:
+                free_debugger(dbg);
+                printf("Exiting debugger.\n");
+                exit(0);
+                return EXIT_FAILURE;
+
+        case DBG_RUN:
                 if (Run(&dbg->dbgee) == 0) {
                         printf("Run command executed successfully.\n");
                 } else {
                         printf("Run command failed.\n");
                 }
-                break;
-        case CMD_UNKNOWN:
+                return EXIT_SUCCESS;
+
         default:
-                printf("Unknown command: %s\n", command);
-                break;
+                printf("Unhandled command type for command: %s\n", command);
+                return EXIT_FAILURE;
         }
+}
+
+void print_help(void) {
+        printf("Z Anti-Anti-Debugger:\n");
+        printf("Available commands:\n");
+        printf("  help        - Display this help message\n");
+        printf("  exit        - Exit the debugger\n");
+        printf("  run         - Run the debuggee program\n");
 }

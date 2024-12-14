@@ -77,7 +77,7 @@ jobs:
 
       - name: Run Valgrind
         run: |
-          echo "run" | valgrind --leak-check=full ${PWD}/bin/z ${PWD}/bin/mock_target
+          echo "run" | valgrind --leak-check=full --show-leak-kinds=all ${PWD}/bin/z ${PWD}/bin/mock_target
 
       - name: Upload Test Coverage (Optional)
         if: success() || failure()
