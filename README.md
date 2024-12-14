@@ -1,6 +1,4 @@
-# Z
-
-Anti-Anti-Debugger
+# Z Anti-Anti-Debugger
 
 ## Build
 
