@@ -4,9 +4,8 @@ typedef enum {
         CLI_EXIT,
         CLI_HELP,
         DBG_RUN,
-        DBG_CONTINUE,
-        DBG_STEP,
-        DBG_TERMINATE,
+        DBG_REGISTERS,
+        DBG_HBREAK,
         UNKNOWN
 } command_t;
 

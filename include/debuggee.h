@@ -15,7 +15,12 @@ typedef struct debuggee {
         debuggee_state state; /**< Current state of the debuggee process */
 } debuggee;
 
+void Help(void);
+
 int Run(debuggee *dbgee);
-int Terminate(debuggee *dbgee);
-int Break(debuggee *dbgee);
-int Continue(debuggee *dbgee);
+int Registers(debuggee *dbgee);
+int Hbreak(debuggee *dbgee);
+
+int read_debug_register(pid_t pid, unsigned long offset, unsigned long *value);
+int set_debug_register(pid_t pid, unsigned long offset, unsigned long value);
+int configure_dr7(pid_t pid, int bpno);

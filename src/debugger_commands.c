@@ -12,14 +12,11 @@ command_t get_command_type(const char *command) {
         if (strcmp(command, "run") == 0) {
                 return DBG_RUN;
         }
-        if (strcmp(command, "continue") == 0 || strcmp(command, "cont") == 0) {
-                return DBG_CONTINUE;
+        if (strcmp(command, "registers") == 0) {
+                return DBG_REGISTERS;
         }
-        if (strcmp(command, "step") == 0) {
-                return DBG_STEP;
-        }
-        if (strcmp(command, "quit") == 0) {
-                return DBG_TERMINATE;
+        if (strcmp(command, "hbreak") == 0) {
+                return DBG_HBREAK;
         }
 
         return UNKNOWN;

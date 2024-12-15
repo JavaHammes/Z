@@ -13,9 +13,6 @@
 #include "debugger.h"
 #include "debugger_commands.h"
 
-int handle_user_input(debugger *dbg, command_t cmd_type, char *command);
-void print_help(void);
-
 void init_debugger(debugger *dbg, const char *debuggee_name) {
         dbg->dbgee.pid = -1;
         dbg->dbgee.name = debuggee_name;
@@ -23,9 +20,9 @@ void init_debugger(debugger *dbg, const char *debuggee_name) {
         dbg->state = DETACHED;
 }
 
+// Note: Because we are using PTRACE_O_EXITKILL the debuggee should also
+// be killed when we detach
 void free_debugger(debugger *dbg) {
-        // Note: Because we are using PTRACE_O_EXITKILL the debuggee should also
-        // be killed when we detach
         if (dbg->state == ATTACHED) {
                 if (ptrace(PTRACE_DETACH, dbg->dbgee.pid, NULL, NULL) == -1) {
                         (void)(fprintf(
@@ -184,14 +181,11 @@ int read_and_handle_user_command(debugger *dbg) {
         return EXIT_SUCCESS;
 }
 
+// On EXIT_FAILURE we prompt the user again
 int handle_user_input(debugger *dbg, command_t cmd_type, char *command) {
         switch (cmd_type) {
         case UNKNOWN:
                 printf("Unknown command: %s\n", command);
-                return EXIT_FAILURE;
-
-        case CLI_HELP:
-                print_help();
                 return EXIT_FAILURE;
 
         case CLI_EXIT:
@@ -200,24 +194,31 @@ int handle_user_input(debugger *dbg, command_t cmd_type, char *command) {
                 exit(0);
                 return EXIT_FAILURE;
 
+        case CLI_HELP:
+                Help();
+                return EXIT_FAILURE;
+
         case DBG_RUN:
-                if (Run(&dbg->dbgee) == 0) {
-                        printf("Run command executed successfully.\n");
-                } else {
+                if (Run(&dbg->dbgee) != 0) {
                         printf("Run command failed.\n");
+                        return EXIT_FAILURE;
                 }
                 return EXIT_SUCCESS;
+
+        case DBG_REGISTERS:
+                if (Registers(&dbg->dbgee) != 0) {
+                        printf("Failed to retrieve registers.\n");
+                }
+                return EXIT_FAILURE;
+
+        case DBG_HBREAK:
+                if (Hbreak(&dbg->dbgee) != 0) {
+                        printf("Failed to set hardware breakpoint.\n");
+                }
+                return EXIT_FAILURE;
 
         default:
                 printf("Unhandled command type for command: %s\n", command);
                 return EXIT_FAILURE;
         }
-}
-
-void print_help(void) {
-        printf("Z Anti-Anti-Debugger:\n");
-        printf("Available commands:\n");
-        printf("  help        - Display this help message\n");
-        printf("  exit        - Exit the debugger\n");
-        printf("  run         - Run the debuggee program\n");
 }
