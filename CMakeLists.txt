@@ -25,6 +25,15 @@ set(CMAKE_C_FLAGS_DEBUG "-g -O0")
 set(CMAKE_C_FLAGS_RELEASE "-Os")
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(CAPSTONE REQUIRED capstone)
+
+if(CAPSTONE_FOUND)
+    add_compile_definitions(${CAPSTONE_CFLAGS_OTHER})
+else()
+    message(FATAL_ERROR "Capstone library not found. Please install Capstone.")
+endif()
+
 add_library(z_lib STATIC
     ${SRC_DIR}/debugger.c
     ${SRC_DIR}/debugger_commands.c
@@ -33,6 +42,11 @@ add_library(z_lib STATIC
 
 target_include_directories(z_lib PUBLIC
     ${INCLUDE_DIR}
+    ${CAPSTONE_INCLUDE_DIRS}
+)
+
+target_link_libraries(z_lib PUBLIC
+    ${CAPSTONE_LIBRARIES}
 )
 
 add_executable(z ${SRC_DIR}/main.c)

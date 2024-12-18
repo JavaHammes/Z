@@ -38,7 +38,7 @@ jobs:
           chmod +x llvm.sh
           sudo ./llvm.sh 18
           sudo apt install -y libcunit1 libcunit1-doc libcunit1-dev valgrind libcriterion-dev \
-                              clang-format-18 clang-tidy-18 gcc g++
+                              clang-format-18 clang-tidy-18 libcapstone-dev gcc
 
       - name: Setup CMake
         uses: jwlawson/actions-setup-cmake@v2
