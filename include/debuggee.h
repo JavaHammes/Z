@@ -22,9 +22,13 @@ int Registers(debuggee *dbgee);
 int Hbreak(debuggee *dbgee);
 int Dump(debuggee *dbgee);
 int Disassemble(debuggee *dbgee);
+int Step(debuggee *dbgee);
+int StepOver(debuggee *dbgee);
+int StepOut(debuggee *dbgee);
 
 int read_debug_register(pid_t pid, unsigned long offset, unsigned long *value);
 int read_rip(debuggee *dbgee, unsigned long *rip);
 int set_debug_register(pid_t pid, unsigned long offset, unsigned long value);
 int configure_dr7(pid_t pid, int bpno);
-int read_memory(pid_t pid, unsigned long address, unsigned char *buf, size_t size);
+int read_memory(pid_t pid, unsigned long address, unsigned char *buf,
+                size_t size);

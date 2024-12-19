@@ -4,29 +4,23 @@
 #include <string.h>
 #include <sys/ptrace.h>
 
+#include "debuggee.h"
+#include "debugger.h"
 #include "debugger_commands.h"
 
 command_t get_command_type(const char *command) {
-        if (strcmp(command, "help") == 0) {
-                return CLI_HELP;
-        }
-        if (strcmp(command, "exit") == 0) {
-                return CLI_EXIT;
-        }
-        if (strcmp(command, "run") == 0) {
-                return DBG_RUN;
-        }
-        if (strcmp(command, "registers") == 0) {
-                return DBG_REGISTERS;
-        }
-        if (strcmp(command, "hbreak") == 0) {
-                return DBG_HBREAK;
-        }
-        if (strcmp(command, "dump") == 0) {
-                return DBG_DUMP;
-        }
-        if (strcmp(command, "dis") == 0) {
-                return DBG_DIS;
+        static const CommandMapping command_map[] = {
+            {"help", CLI_HELP},      {"exit", CLI_EXIT},     {"run", DBG_RUN},
+            {"regs", DBG_REGISTERS}, {"hbreak", DBG_HBREAK}, {"dump", DBG_DUMP},
+            {"dis", DBG_DIS},        {"step", DBG_STEP},     {"over", DBG_OVER},
+            {"out", DBG_OUT},
+        };
+
+        for (size_t i = 0; i < sizeof(command_map) / sizeof(command_map[0]);
+             ++i) {
+                if (strcmp(command, command_map[i].command) == 0) {
+                        return command_map[i].type;
+                }
         }
 
         return UNKNOWN;
@@ -123,6 +117,24 @@ int handle_user_input(debugger *dbg, command_t cmd_type, char *command) {
         case DBG_DIS:
                 if (Disassemble(&dbg->dbgee) != 0) {
                         printf("Failed to dump memory.\n");
+                }
+                return EXIT_FAILURE;
+
+        case DBG_STEP:
+                if (Step(&dbg->dbgee) != 0) {
+                        printf("Failed to single step.\n");
+                }
+                return EXIT_FAILURE;
+
+        case DBG_OVER:
+                if (StepOver(&dbg->dbgee) != 0) {
+                        printf("Failed to step over.\n");
+                }
+                return EXIT_FAILURE;
+
+        case DBG_OUT:
+                if (StepOut(&dbg->dbgee) != 0) {
+                        printf("Failed to step out.\n");
                 }
                 return EXIT_FAILURE;
 
