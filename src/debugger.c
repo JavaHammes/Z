@@ -17,6 +17,8 @@ void init_debugger(debugger *dbg, const char *debuggee_name) {
         dbg->dbgee.pid = -1;
         dbg->dbgee.name = debuggee_name;
         dbg->dbgee.state = IDLE;
+        // Could be NULL. TODO: Catch this.
+        dbg->dbgee.bp_handler = init_breakpoint_handler();
         dbg->state = DETACHED;
 }
 
@@ -50,6 +52,7 @@ void free_debugger(debugger *dbg) {
 
         dbg->dbgee.pid = -1;
         dbg->dbgee.state = TERMINATED;
+        free_breakpoint_handler(dbg->dbgee.bp_handler);
         dbg->state = DETACHED;
 }
 
@@ -125,6 +128,18 @@ int trace_debuggee(debugger *dbg) {
                         int sig = WSTOPSIG(status);
                         printf("Child %d stopped by signal %d.\n", pid, sig);
                         dbg->dbgee.state = STOPPED;
+
+                        size_t bp_index;
+                        bool sw_bp_hit =
+                            is_software_breakpoint(&dbg->dbgee, &bp_index);
+
+                        if (sw_bp_hit) {
+                                if (handle_software_breakpoint(&dbg->dbgee,
+                                                               bp_index) !=
+                                    EXIT_SUCCESS) {
+                                        return EXIT_FAILURE;
+                                }
+                        }
 
                         if (read_and_handle_user_command(dbg) != EXIT_SUCCESS) {
                                 return EXIT_FAILURE;

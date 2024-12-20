@@ -8,16 +8,31 @@
 #include "debugger.h"
 #include "debugger_commands.h"
 
-command_t get_command_type(const char *command) {
-        static const CommandMapping command_map[] = {
-            {"help", CLI_HELP},      {"exit", CLI_EXIT},     {"run", DBG_RUN},
-            {"regs", DBG_REGISTERS}, {"hbreak", DBG_HBREAK}, {"dump", DBG_DUMP},
-            {"dis", DBG_DIS},        {"step", DBG_STEP},     {"over", DBG_OVER},
-            {"out", DBG_OUT},
-        };
+static const CommandMapping command_map[] = {
+    {"help", CLI_HELP},
+    {"exit", CLI_EXIT},
+    {"run", DBG_RUN},
+    {"regs", DBG_REGISTERS},
+    {"break", DBG_BREAK},
+    {"hbreak", DBG_HBREAK},
+    {"breakpoints", DBG_LIST_BREAKPOINTS},
+    {"remove", DBG_REMOVE_BREAKPOINT},
+    {"dump", DBG_DUMP},
+    {"dis", DBG_DIS},
+    {"step", DBG_STEP},
+    {"over", DBG_OVER},
+    {"out", DBG_OUT},
+};
 
-        for (size_t i = 0; i < sizeof(command_map) / sizeof(command_map[0]);
-             ++i) {
+enum {
+        PROMPT_USER_AGAIN = 1,
+        DONT_PROMPT_USER_AGAIN = 0,
+};
+
+command_t get_command_type(const char *command) {
+        size_t map_size = sizeof(command_map) / sizeof(command_map[0]);
+
+        for (size_t i = 0; i < map_size; ++i) {
                 if (strcmp(command, command_map[i].command) == 0) {
                         return command_map[i].type;
                 }
@@ -26,27 +41,131 @@ command_t get_command_type(const char *command) {
         return UNKNOWN;
 }
 
+int handle_user_input(debugger *dbg, command_t cmd_type, const char *arg) {
+        switch (cmd_type) {
+        case UNKNOWN:
+                printf("Unknown command.\n");
+                return PROMPT_USER_AGAIN;
+
+        case CLI_EXIT:
+                free_debugger(dbg);
+                printf("Exiting debugger.\n");
+                exit(EXIT_SUCCESS);
+                return PROMPT_USER_AGAIN;
+
+        case CLI_HELP:
+                Help();
+                return PROMPT_USER_AGAIN;
+
+        case DBG_RUN:
+                if (Run(&dbg->dbgee) != 0) {
+                        printf("Run command failed.\n");
+                        return PROMPT_USER_AGAIN;
+                }
+                return DONT_PROMPT_USER_AGAIN;
+
+        case DBG_REGISTERS:
+                if (Registers(&dbg->dbgee) != 0) {
+                        printf("Failed to retrieve registers.\n");
+                }
+                return PROMPT_USER_AGAIN;
+
+        case DBG_BREAK:
+                if (arg == NULL) {
+                        printf("Usage: break "
+                               "<function_name|line_number|address>\n");
+                        return PROMPT_USER_AGAIN;
+                }
+                if (SetSoftwareBreakpoint(&dbg->dbgee, arg) != 0) {
+                        printf("Failed to set software breakpoint at '%s'.\n",
+                               arg);
+                }
+                return PROMPT_USER_AGAIN;
+
+        case DBG_HBREAK:
+                if (arg == NULL) {
+                        printf("Usage: hbreak "
+                               "<function_name|line_number|address>\n");
+                        return PROMPT_USER_AGAIN;
+                }
+                if (SetHardwareBreakpoint(&dbg->dbgee, arg) != 0) {
+                        printf("Failed to set hardware breakpoint at '%s'.\n",
+                               arg);
+                }
+                return PROMPT_USER_AGAIN;
+
+        case DBG_LIST_BREAKPOINTS:
+                ListBreakpoints(&dbg->dbgee);
+                return PROMPT_USER_AGAIN;
+
+        case DBG_REMOVE_BREAKPOINT:
+                if (arg == NULL) {
+                        printf("Usage: remove <idx>\n");
+                        return PROMPT_USER_AGAIN;
+                }
+                if (RemoveBreakpoint(&dbg->dbgee, arg) != 0) {
+                        printf("Failed to remove breakpoint at index: <%s>.\n",
+                               arg);
+                };
+                return PROMPT_USER_AGAIN;
+
+        case DBG_DUMP:
+                if (Dump(&dbg->dbgee) != 0) {
+                        printf("Failed to dump memory.\n");
+                }
+                return PROMPT_USER_AGAIN;
+
+        case DBG_DIS:;
+                if (Disassemble(&dbg->dbgee) != 0) {
+                        printf("Failed to disassemble memory.\n");
+                }
+                return PROMPT_USER_AGAIN;
+
+        case DBG_STEP:
+                if (Step(&dbg->dbgee) != 0) {
+                        printf("Failed to single step.\n");
+                }
+                return PROMPT_USER_AGAIN;
+
+        case DBG_OVER:
+                if (StepOver(&dbg->dbgee) != 0) {
+                        printf("Failed to step over.\n");
+                }
+                return PROMPT_USER_AGAIN;
+
+        case DBG_OUT:
+                if (StepOut(&dbg->dbgee) != 0) {
+                        printf("Failed to step out.\n");
+                }
+                return PROMPT_USER_AGAIN;
+
+        default:
+                printf("Unhandled command type.\n");
+                return PROMPT_USER_AGAIN;
+        }
+}
+
 int read_and_handle_user_command(debugger *dbg) {
-        char *command = NULL;
+        char *input = NULL;
         size_t len = 0;
-        ssize_t read;
+        ssize_t read_len;
 
         while (true) {
                 printf("Z: ");
                 (void)(fflush(stdout));
-                read = getline(&command, &len, stdin);
-                if (read == -1) {
+                read_len = getline(&input, &len, stdin);
+                if (read_len == -1) {
                         if (feof(stdin)) {
-                                free(command);
+                                free(input);
                                 free_debugger(dbg);
                                 exit(0);
                         } else {
-                                perror("getline");
+                                perror("getlinehbreak");
                                 printf("Failed to read command. Continuing "
                                        "execution.\n");
                         }
 
-                        free(command);
+                        free(input);
 
                         if (ptrace(PTRACE_CONT, dbg->dbgee.pid, NULL, NULL) ==
                             -1) {
@@ -58,88 +177,21 @@ int read_and_handle_user_command(debugger *dbg) {
                         return EXIT_SUCCESS;
                 }
 
-                // Remove trailing newline character
-                command[strcspn(command, "\n")] = '\0';
+                input[strcspn(input, "\n")] = '\0';
 
-                command_t cmd_type = get_command_type(command);
+                char *command = strtok(input, " ");
+                char *arg = strtok(NULL, " ");
 
-                if (handle_user_input(dbg, cmd_type, command) == EXIT_SUCCESS) {
+                command_t cmd_type = UNKNOWN;
+                if (command != NULL) {
+                        cmd_type = get_command_type(command);
+                }
+
+                if (handle_user_input(dbg, cmd_type, arg) == EXIT_SUCCESS) {
                         break;
                 }
         }
 
-        free(command);
+        free(input);
         return EXIT_SUCCESS;
-}
-
-// On EXIT_FAILURE we prompt the user again
-int handle_user_input(debugger *dbg, command_t cmd_type, char *command) {
-        switch (cmd_type) {
-        case UNKNOWN:
-                printf("Unknown command: %s\n", command);
-                return EXIT_FAILURE;
-
-        case CLI_EXIT:
-                free_debugger(dbg);
-                printf("Exiting debugger.\n");
-                exit(0);
-                return EXIT_FAILURE;
-
-        case CLI_HELP:
-                Help();
-                return EXIT_FAILURE;
-
-        case DBG_RUN:
-                if (Run(&dbg->dbgee) != 0) {
-                        printf("Run command failed.\n");
-                        return EXIT_FAILURE;
-                }
-                return EXIT_SUCCESS;
-
-        case DBG_REGISTERS:
-                if (Registers(&dbg->dbgee) != 0) {
-                        printf("Failed to retrieve registers.\n");
-                }
-                return EXIT_FAILURE;
-
-        case DBG_HBREAK:
-                if (Hbreak(&dbg->dbgee) != 0) {
-                        printf("Failed to set hardware breakpoint.\n");
-                }
-                return EXIT_FAILURE;
-
-        case DBG_DUMP:
-                if (Dump(&dbg->dbgee) != 0) {
-                        printf("Failed to dump memory.\n");
-                }
-                return EXIT_FAILURE;
-
-        case DBG_DIS:
-                if (Disassemble(&dbg->dbgee) != 0) {
-                        printf("Failed to dump memory.\n");
-                }
-                return EXIT_FAILURE;
-
-        case DBG_STEP:
-                if (Step(&dbg->dbgee) != 0) {
-                        printf("Failed to single step.\n");
-                }
-                return EXIT_FAILURE;
-
-        case DBG_OVER:
-                if (StepOver(&dbg->dbgee) != 0) {
-                        printf("Failed to step over.\n");
-                }
-                return EXIT_FAILURE;
-
-        case DBG_OUT:
-                if (StepOut(&dbg->dbgee) != 0) {
-                        printf("Failed to step out.\n");
-                }
-                return EXIT_FAILURE;
-
-        default:
-                printf("Unhandled command type for command: %s\n", command);
-                return EXIT_FAILURE;
-        }
 }

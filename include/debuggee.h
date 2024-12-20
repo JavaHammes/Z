@@ -1,6 +1,9 @@
 #pragma once
 
+#include <stdbool.h>
 #include <sys/types.h>
+
+#include "breakpoint_handler.h"
 
 typedef enum {
         IDLE = 0,
@@ -13,18 +16,23 @@ typedef struct debuggee {
         pid_t pid;            /**< Process ID of the debuggee */
         const char *name;     /**< Name or path of the debuggee executable */
         debuggee_state state; /**< Current state of the debuggee process */
+        BreakpointHandler *bp_handler;
 } debuggee;
 
 void Help(void);
 
 int Run(debuggee *dbgee);
 int Registers(debuggee *dbgee);
-int Hbreak(debuggee *dbgee);
 int Dump(debuggee *dbgee);
 int Disassemble(debuggee *dbgee);
 int Step(debuggee *dbgee);
 int StepOver(debuggee *dbgee);
 int StepOut(debuggee *dbgee);
+
+int SetSoftwareBreakpoint(debuggee *dbgee, const char *arg);
+int SetHardwareBreakpoint(debuggee *dbgee, const char *arg);
+int RemoveBreakpoint(debuggee *dbgee, const char *arg);
+void ListBreakpoints(debuggee *dbgee);
 
 int read_debug_register(pid_t pid, unsigned long offset, unsigned long *value);
 int read_rip(debuggee *dbgee, unsigned long *rip);
@@ -32,3 +40,6 @@ int set_debug_register(pid_t pid, unsigned long offset, unsigned long value);
 int configure_dr7(pid_t pid, int bpno);
 int read_memory(pid_t pid, unsigned long address, unsigned char *buf,
                 size_t size);
+int write_memory_byte(pid_t pid, unsigned long address, uint8_t byte);
+bool is_software_breakpoint(debuggee *dbgee, size_t *bp_index_out);
+int handle_software_breakpoint(debuggee *dbgee, size_t bp_index);
