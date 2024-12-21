@@ -23,7 +23,7 @@ void free_breakpoint_handler(breakpoint_handler *handler) {
 }
 
 size_t add_software_breakpoint(breakpoint_handler *handler, uintptr_t address,
-                               uint8_t originalData) {
+                               uint8_t original_byte) {
         if (handler->count == handler->capacity) {
                 size_t new_capacity =
                     (handler->capacity == 0) ? 4 : handler->capacity * 2;
@@ -41,7 +41,7 @@ size_t add_software_breakpoint(breakpoint_handler *handler, uintptr_t address,
         breakpoint bp;
         bp.bp_t = SOFTWARE_BP;
         bp.data.sw_bp.address = address;
-        bp.data.sw_bp.originalData = originalData;
+        bp.data.sw_bp.original_byte = original_byte;
 
         handler->breakpoints[handler->count++] = bp;
 
@@ -104,7 +104,7 @@ void list_breakpoints(const breakpoint_handler *handler) {
                         printf("Software\t0x%lx\t\tOriginal Data: 0x%02X\n",
                                (unsigned long)handler->breakpoints[i]
                                    .data.sw_bp.address,
-                               handler->breakpoints[i].data.sw_bp.originalData);
+                               handler->breakpoints[i].data.sw_bp.original_byte);
                 } else if (handler->breakpoints[i].bp_t == HARDWARE_BP) {
                         printf("Hardware\t0x%lx\t\t\n",
                                (unsigned long)handler->breakpoints[i]

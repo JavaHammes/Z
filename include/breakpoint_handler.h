@@ -4,8 +4,9 @@
 typedef enum { SOFTWARE_BP, HARDWARE_BP } breakpoint_t;
 
 typedef struct {
-        uintptr_t address;    /**< Address where the breakpoint is set */
-        uint8_t originalData; /**< Original data at the breakpoint address */
+        uintptr_t address; /**< Address where the breakpoint is set */
+        uint8_t original_byte; /**< Original data at the breakpoint address */
+        size_t size;
 } software_breakpoint;
 
 typedef struct {
@@ -31,7 +32,7 @@ typedef struct {
 breakpoint_handler *init_breakpoint_handler(void);
 void free_breakpoint_handler(breakpoint_handler *handler);
 size_t add_software_breakpoint(breakpoint_handler *handler, uintptr_t address,
-                               uint8_t originalData);
+                               uint8_t original_byte);
 size_t add_hardware_breakpoint(breakpoint_handler *handler, uintptr_t address);
 int remove_breakpoint(breakpoint_handler *handler, size_t index);
 void list_breakpoints(const breakpoint_handler *handler);

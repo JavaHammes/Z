@@ -26,18 +26,27 @@ enum {
         WORD_LENGTH = 16,
         BYTE_LENGTH = 8,
         MAX_BYTE_VALUE = 0xFF,
-        INT3 = 0xCC,
         RESPONSE_BUFFER_SIZE = 10,
+        DECIMAL_BASE_PARAMETER = 10,
         BYTE_MASK = 0xFFUL,
         INDEX_STR_MAX_LEN = 20,
+        DR7_ENABLE_MASK = 0xF,
+        DR7_MASK_RW_BITS = 0x3,
+        DR7_MASK_LEN_BITS = 0x3,
+        DR7_RW_BASE_SHIFT = 16,
+        DR7_LEN_BASE_SHIFT = 18,
 };
 
 static inline unsigned long DR7_ENABLE_LOCAL(int bpno) {
         return 0x1UL << (bpno * 2);
 }
 
-static inline unsigned long DR7_RW_WRITE(int bpno) {
-        return 0x1UL << (WORD_LENGTH + (bpno * 4));
+static inline unsigned long DR7_RW_SHIFT(int bpno) {
+        return (DR7_RW_BASE_SHIFT + bpno * 4);
+}
+
+static inline unsigned long DR7_LEN_SHIFT(int bpno) {
+        return (DR7_LEN_BASE_SHIFT + bpno * 4);
 }
 
 static bool should_remove_breakpoints(const debuggee *dbgee) {
@@ -53,12 +62,12 @@ static bool should_remove_breakpoints(const debuggee *dbgee) {
                 }
                 char answer = (char)tolower((unsigned char)response[i]);
 
-                if (answer == 'y') {
-                        return true;
+                if (answer != 'y') {
+                        return false;
                 }
         }
 
-        return false;
+        return true;
 }
 
 void Help(void) {
@@ -78,8 +87,8 @@ void Help(void) {
                "\n");
         printf("  run             - Run the debuggee program\n");
         printf("  con             - Continue execution of the debuggee\n");
-        printf(
-            "  step            - Execute the next instruction (single step)\n");
+        printf("  step            - Execute the next instruction (single "
+               "step)\n");
         printf("  over            - Step over the current instruction\n");
         printf("  out             - Step out of the current function\n");
         printf("---------------------------------------------------------------"
@@ -134,8 +143,6 @@ int Run(debuggee *dbgee) {
                                     "Debuggee is running until termination.\n");
                                 return EXIT_SUCCESS;
                         }
-                        printf("Continuing execution with existing "
-                               "breakpoints.\n");
                 }
         } else {
                 dbgee->has_run = true;
@@ -235,6 +242,26 @@ int Registers(debuggee *dbgee) {
         return EXIT_SUCCESS;
 }
 
+uint64_t add_breakpoint(pid_t pid, uint64_t addr) {
+	uint64_t int3 = 0xCC;
+	uint64_t code_at_addr = ptrace(PTRACE_PEEKDATA, pid, addr, NULL);
+	uint64_t code_break = (code_at_addr & ~0xFF) | int3;
+
+	ptrace(PTRACE_POKEDATA, pid, addr, code_break);
+
+	return code_at_addr;
+}
+
+uint64_t replace_breakpoint(pid_t pid, uint64_t addr, uint64_t old_byte) {
+	uint64_t int3 = old_byte;
+	uint64_t code_at_addr = ptrace(PTRACE_PEEKDATA, pid, addr, NULL);
+	uint64_t code_break = (code_at_addr & ~0xFF) | int3;
+
+	ptrace(PTRACE_POKEDATA, pid, addr, code_break);
+
+	return code_at_addr;
+}
+
 int SetSoftwareBreakpoint(debuggee *dbgee, const char *arg) {
         uintptr_t address = strtoull(arg, NULL, 0);
         if (address == 0) {
@@ -242,20 +269,14 @@ int SetSoftwareBreakpoint(debuggee *dbgee, const char *arg) {
                 return EXIT_FAILURE;
         }
 
-        unsigned char original_byte;
-        if (read_memory(dbgee->pid, address, &original_byte, 1) != 0) {
+        if (breakpoint_exists(dbgee, address)) {
                 (void)(fprintf(stderr,
-                               "Failed to read memory at address 0x%lx\n",
+                               "A breakpoint already exists at address 0x%lx\n",
                                address));
                 return EXIT_FAILURE;
         }
 
-        if (write_memory_byte(dbgee->pid, address, INT3) != 0) {
-                (void)(fprintf(stderr,
-                               "Failed to set software breakpoint at 0x%lx\n",
-                               address));
-                return EXIT_FAILURE;
-        }
+        uint64_t original_byte = add_breakpoint(dbgee->pid, address);
 
         size_t bp_index =
             add_software_breakpoint(dbgee->bp_handler, address, original_byte);
@@ -269,6 +290,13 @@ int SetHardwareBreakpoint(debuggee *dbgee, const char *arg) {
         uintptr_t address = strtoull(arg, NULL, 0);
         if (address == 0) {
                 (void)(fprintf(stderr, "Invalid address: %s\n", arg));
+                return EXIT_FAILURE;
+        }
+
+        if (breakpoint_exists(dbgee, address)) {
+                (void)(fprintf(stderr,
+                               "A breakpoint already exists at address 0x%lx\n",
+                               address));
                 return EXIT_FAILURE;
         }
 
@@ -299,8 +327,8 @@ int SetHardwareBreakpoint(debuggee *dbgee, const char *arg) {
         } else if (dr3 == 0) {
                 bpno = 3;
         } else {
-                (void)(fprintf(stderr,
-                        "No available hardware breakpoint registers.\n"));
+                (void)(fprintf(
+                    stderr, "No available hardware breakpoint registers.\n"));
                 return EXIT_FAILURE;
         }
 
@@ -325,13 +353,14 @@ int SetHardwareBreakpoint(debuggee *dbgee, const char *arg) {
 
         if (set_debug_register(dbgee->pid, dr_offset, address) != 0) {
                 (void)(fprintf(stderr, "Failed to set DR%d to 0x%lx.\n", bpno,
-                        address));
+                               address));
                 return EXIT_FAILURE;
         }
 
-        if (configure_dr7(dbgee->pid, bpno, 0x0, 0x0) != 0) { // condition=00 (execute), length=00 (1 byte)
-                (void)(fprintf(stderr, "Failed to configure DR7 for breakpoint %d.\n",
-                        bpno));
+        if (configure_dr7(dbgee->pid, bpno, 0x0, 0x0, true) != 0) {
+                (void)(fprintf(stderr,
+                               "Failed to configure DR7 for breakpoint %d.\n",
+                               bpno));
                 return EXIT_FAILURE;
         }
 
@@ -343,7 +372,7 @@ int SetHardwareBreakpoint(debuggee *dbgee, const char *arg) {
 }
 
 int RemoveBreakpoint(debuggee *dbgee, const char *arg) {
-        size_t index = strtoull(arg, NULL, RESPONSE_BUFFER_SIZE);
+        size_t index = strtoull(arg, NULL, DECIMAL_BASE_PARAMETER);
         if (index >= dbgee->bp_handler->count) {
                 (void)(fprintf(stderr, "Invalid breakpoint index: %zu\n",
                                index));
@@ -353,14 +382,19 @@ int RemoveBreakpoint(debuggee *dbgee, const char *arg) {
         breakpoint *bp = &dbgee->bp_handler->breakpoints[index];
 
         if (bp->bp_t == SOFTWARE_BP) {
+                replace_breakpoint(dbgee->pid, bp->data.sw_bp.address, bp->data.sw_bp.original_byte);
+                // TODO: correct this
+                /*
                 if (write_memory_byte(dbgee->pid, bp->data.sw_bp.address,
-                                      bp->data.sw_bp.originalData) != 0) {
+
+                                      bp->data.sw_bp.original_byte) != 0) {
                         (void)(fprintf(
                             stderr,
                             "Failed to remove software breakpoint at 0x%lx\n",
                             bp->data.sw_bp.address));
                         return EXIT_FAILURE;
                 }
+                */
                 printf("Software breakpoint removed at 0x%lx [Index: %zu]\n",
                        bp->data.sw_bp.address, index);
         } else if (bp->bp_t == HARDWARE_BP) {
@@ -394,57 +428,42 @@ int RemoveBreakpoint(debuggee *dbgee, const char *arg) {
                         return EXIT_FAILURE;
                 }
 
-                unsigned long *dr = NULL;
                 unsigned long dr_offset;
                 switch (dr_index) {
                 case 0:
-                        dr = &dr0;
                         dr_offset = DR0_OFFSET;
                         break;
                 case 1:
-                        dr = &dr1;
                         dr_offset = DR1_OFFSET;
                         break;
                 case 2:
-                        dr = &dr2;
                         dr_offset = DR2_OFFSET;
                         break;
                 case 3:
-                        dr = &dr3;
                         dr_offset = DR3_OFFSET;
                         break;
                 default:
-                        dr = NULL;
-                        break;
-                }
-
-                if (dr == NULL) {
-                        (void)(fprintf(stderr,
-                                       "Invalid debug register index.\n"));
+                        (void)(fprintf(stderr, "Invalid breakpoint number.\n"));
                         return EXIT_FAILURE;
                 }
 
-                *dr = 0;
-
-                if (set_debug_register(dbgee->pid, dr_offset, *dr) != 0) {
+                if (set_debug_register(dbgee->pid, dr_offset, 0) != 0) {
                         (void)(fprintf(stderr, "Failed to clear DR%d.\n",
                                        dr_index));
                         return EXIT_FAILURE;
                 }
 
-                /*
-                if (configure_dr7(dbgee->pid, dr_index) != 0) {
+                if (configure_dr7(dbgee->pid, dr_index, 0, 0, false) != 0) {
                         (void)(fprintf(
                             stderr,
                             "Failed to update DR7 after clearing DR%d.\n",
                             dr_index));
                         return EXIT_FAILURE;
                 }
-                */
 
-                printf(
-                    "Hardware breakpoint removed at 0x%lx [Index: %zu, DR%d]\n",
-                    bp->data.hw_bp.address, index, dr_index);
+                printf("Hardware breakpoint removed at 0x%lx [Index: %zu, "
+                       "DR%d]\n",
+                       bp->data.hw_bp.address, index, dr_index);
         }
 
         if (remove_breakpoint(dbgee->bp_handler, index) != 0) {
@@ -544,7 +563,6 @@ int Disassemble(debuggee *dbgee) {
                 printf("-------------------------------------------------------"
                        "------------------------------\n");
                 for (size_t i = 0; i < count; i++) {
-                        // printf("0x%016llx: %s\t\t%s\n",
                         printf("0x%016llx: %-10s\t%s\n",
                                (unsigned long long)insn[i].address,
                                insn[i].mnemonic, insn[i].op_str);
@@ -593,19 +611,31 @@ int StepOut(debuggee *dbgee) {
         return EXIT_SUCCESS;
 }
 
-int configure_dr7(pid_t pid, int bpno, int condition, int length) {
-    unsigned long dr7;
+int configure_dr7(pid_t pid, int bpno, int condition, int length, bool enable) {
+        unsigned long dr7;
 
-    if (read_debug_register(pid, DR7_OFFSET, &dr7) != 0) {
-        return EXIT_FAILURE;
-    }
+        if (read_debug_register(pid, DR7_OFFSET, &dr7) != 0) {
+                return EXIT_FAILURE;
+        }
 
-    dr7 |= DR7_ENABLE_LOCAL(bpno);
-    dr7 &= ~(0xF << (16 + bpno * 4));
-    dr7 |= (condition & 0x3) << (16 + bpno * 4);
-    dr7 |= (length & 0x3) << (18 + bpno * 4);
+        if (enable) {
+                dr7 |= DR7_ENABLE_LOCAL(bpno);
+                dr7 &= ~(DR7_ENABLE_MASK << DR7_RW_SHIFT(bpno));
+                dr7 |= (condition & DR7_MASK_RW_BITS) << DR7_RW_SHIFT(bpno);
+                dr7 |= (length & DR7_MASK_LEN_BITS) << DR7_LEN_SHIFT(bpno);
+        } else {
+                dr7 &= ~(DR7_ENABLE_MASK << DR7_RW_SHIFT(bpno));
+        }
 
-    return set_debug_register(pid, DR7_OFFSET, dr7);
+        return set_debug_register(pid, DR7_OFFSET, dr7);
+}
+
+int set_debug_register(pid_t pid, unsigned long offset, unsigned long value) {
+        if (ptrace(PTRACE_POKEUSER, pid, offset, value) == -1) {
+                perror("ptrace POKEUSER DR7");
+                return EXIT_FAILURE;
+        }
+        return EXIT_SUCCESS;
 }
 
 int read_debug_register(pid_t pid, unsigned long offset, unsigned long *value) {
@@ -648,14 +678,6 @@ int read_rip(debuggee *dbgee, unsigned long *rip) {
         return EXIT_SUCCESS;
 }
 
-int set_debug_register(pid_t pid, unsigned long offset, unsigned long value) {
-        if (ptrace(PTRACE_POKEUSER, pid, offset, value) == -1) {
-                perror("ptrace POKEUSER DR7");
-                return EXIT_FAILURE;
-        }
-        return EXIT_SUCCESS;
-}
-
 int read_memory(pid_t pid, unsigned long address, unsigned char *buf,
                 size_t size) {
         size_t i = 0;
@@ -678,33 +700,11 @@ int read_memory(pid_t pid, unsigned long address, unsigned char *buf,
         return EXIT_SUCCESS;
 }
 
-int write_memory_byte(pid_t pid, unsigned long address, uint8_t byte) {
-        errno = 0;
-        unsigned long word =
-            ptrace(PTRACE_PEEKDATA, pid, address & ~(sizeof(long) - 1), NULL);
-        if (word == (unsigned long)-1 && errno != 0) {
-                perror("ptrace PEEKDATA");
-                return EXIT_FAILURE;
-        }
-
-        size_t byte_offset = address % sizeof(long);
-        word = (word & ~(BYTE_MASK << (BYTE_LENGTH * byte_offset))) |
-               ((unsigned long)byte << (BYTE_LENGTH * byte_offset));
-
-        if (ptrace(PTRACE_POKEDATA, pid, address & ~(sizeof(long) - 1), word) ==
-            -1) {
-                perror("ptrace POKEDATA");
-                return EXIT_FAILURE;
-        }
-
-        return EXIT_SUCCESS;
-}
-
 bool is_software_breakpoint(debuggee *dbgee, size_t *bp_index_out) {
         unsigned long rip;
         if (read_rip(dbgee, &rip) != 0) {
                 (void)(fprintf(stderr, "Failed to retrieve current RIP.\n"));
-                return -1;
+                return false;
         }
 
         for (size_t i = 0; i < dbgee->bp_handler->count; ++i) {
@@ -723,23 +723,17 @@ bool is_software_breakpoint(debuggee *dbgee, size_t *bp_index_out) {
 int handle_software_breakpoint(debuggee *dbgee, size_t bp_index) {
         breakpoint *bp = &dbgee->bp_handler->breakpoints[bp_index];
         unsigned long address = bp->data.sw_bp.address;
-        unsigned char original_byte = bp->data.sw_bp.originalData;
+        unsigned char original_byte = bp->data.sw_bp.original_byte;
 
-        // 1: Restore the original byte at breakpoint address
-        if (write_memory_byte(dbgee->pid, address, original_byte) != 0) {
-                (void)(fprintf(stderr,
-                               "Failed to restore original byte at 0x%lx\n",
-                               address));
-                return EXIT_FAILURE;
-        }
-
-        // 2: Adjust RIP to point back to the breakpoint address
+        // 1: Adjust RIP to point back to the breakpoint address
         if (set_rip(dbgee, address) != 0) {
                 (void)(fprintf(stderr,
                                "Failed to set current RIP to address 0x%lx.\n",
                                address));
                 return EXIT_FAILURE;
         }
+
+        replace_breakpoint(dbgee->pid, address, original_byte);
 
         // 3: Single-step the instruction
         if (Step(dbgee) != 0) {
@@ -771,17 +765,13 @@ int handle_software_breakpoint(debuggee *dbgee, size_t bp_index) {
         if (WIFSTOPPED(wait_status)) {
                 int sig = WSTOPSIG(wait_status);
                 if (sig != SIGTRAP) {
+                        (void)(fprintf(stderr, "Unexpected signal %d during single-step.\n", sig));
                         exit(EXIT_FAILURE);
                 }
         }
 
         // 5: Re-insert the INT3 opcode to maintain the breakpoint
-        if (write_memory_byte(dbgee->pid, address, INT3) != 0) {
-                (void)(fprintf(stderr,
-                               "Failed to set software breakpoint at 0x%lx\n",
-                               address));
-                return EXIT_FAILURE;
-        }
+        add_breakpoint(dbgee->pid, address);
 
         return EXIT_SUCCESS;
 }
@@ -807,4 +797,16 @@ int remove_all_breakpoints(debuggee *dbgee) {
                 }
         }
         return EXIT_SUCCESS;
+}
+
+
+bool breakpoint_exists(const debuggee *dbgee, unsigned long address) {
+        for (size_t i = 0; i < dbgee->bp_handler->count; ++i) {
+                breakpoint *bp = &dbgee->bp_handler->breakpoints[i];
+                if ((bp->bp_t == SOFTWARE_BP || bp->bp_t == HARDWARE_BP) &&
+                    bp->data.sw_bp.address == address) {
+                        return true;
+                }
+        }
+        return false;
 }
