@@ -8,20 +8,21 @@
 #include "debugger.h"
 #include "debugger_commands.h"
 
-static const CommandMapping command_map[] = {
+static const command_mapping command_map[] = {
     {"help", CLI_HELP},
     {"exit", CLI_EXIT},
     {"run", DBG_RUN},
+    {"con", DBG_CONTINUE},
     {"regs", DBG_REGISTERS},
     {"break", DBG_BREAK},
     {"hbreak", DBG_HBREAK},
-    {"breakpoints", DBG_LIST_BREAKPOINTS},
+    {"points", DBG_LIST_BREAKPOINTS},
     {"remove", DBG_REMOVE_BREAKPOINT},
     {"dump", DBG_DUMP},
     {"dis", DBG_DIS},
     {"step", DBG_STEP},
-    {"over", DBG_OVER},
-    {"out", DBG_OUT},
+    {"over", DBG_STEP_OVER},
+    {"out", DBG_STEP_OUT},
 };
 
 enum {
@@ -60,6 +61,13 @@ int handle_user_input(debugger *dbg, command_t cmd_type, const char *arg) {
         case DBG_RUN:
                 if (Run(&dbg->dbgee) != 0) {
                         printf("Run command failed.\n");
+                        return PROMPT_USER_AGAIN;
+                }
+                return DONT_PROMPT_USER_AGAIN;
+
+        case DBG_CONTINUE:
+                if (Continue(&dbg->dbgee) != 0) {
+                        printf("Continue command failed.\n");
                         return PROMPT_USER_AGAIN;
                 }
                 return DONT_PROMPT_USER_AGAIN;
@@ -127,13 +135,13 @@ int handle_user_input(debugger *dbg, command_t cmd_type, const char *arg) {
                 }
                 return PROMPT_USER_AGAIN;
 
-        case DBG_OVER:
+        case DBG_STEP_OVER:
                 if (StepOver(&dbg->dbgee) != 0) {
                         printf("Failed to step over.\n");
                 }
                 return PROMPT_USER_AGAIN;
 
-        case DBG_OUT:
+        case DBG_STEP_OUT:
                 if (StepOut(&dbg->dbgee) != 0) {
                         printf("Failed to step out.\n");
                 }

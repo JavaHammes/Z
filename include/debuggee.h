@@ -1,6 +1,7 @@
 #pragma once
 
 #include <stdbool.h>
+#include <stdint.h>
 #include <sys/types.h>
 
 #include "breakpoint_handler.h"
@@ -16,12 +17,14 @@ typedef struct debuggee {
         pid_t pid;            /**< Process ID of the debuggee */
         const char *name;     /**< Name or path of the debuggee executable */
         debuggee_state state; /**< Current state of the debuggee process */
-        BreakpointHandler *bp_handler;
+        breakpoint_handler *bp_handler;
+        bool has_run;
 } debuggee;
 
 void Help(void);
 
 int Run(debuggee *dbgee);
+int Continue(debuggee *dbgee);
 int Registers(debuggee *dbgee);
 int Dump(debuggee *dbgee);
 int Disassemble(debuggee *dbgee);
@@ -37,9 +40,10 @@ void ListBreakpoints(debuggee *dbgee);
 int read_debug_register(pid_t pid, unsigned long offset, unsigned long *value);
 int read_rip(debuggee *dbgee, unsigned long *rip);
 int set_debug_register(pid_t pid, unsigned long offset, unsigned long value);
-int configure_dr7(pid_t pid, int bpno);
+int configure_dr7(pid_t pid, int bpno, int condition, int length);
 int read_memory(pid_t pid, unsigned long address, unsigned char *buf,
                 size_t size);
 int write_memory_byte(pid_t pid, unsigned long address, uint8_t byte);
 bool is_software_breakpoint(debuggee *dbgee, size_t *bp_index_out);
 int handle_software_breakpoint(debuggee *dbgee, size_t bp_index);
+int remove_all_breakpoints(debuggee *dbgee);

@@ -1,12 +1,15 @@
 #include <capstone/capstone.h>
+#include <ctype.h>
 #include <errno.h>
+#include <signal.h>
 #include <stddef.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/ptrace.h>
-#include <sys/types.h>
 #include <sys/user.h>
+#include <sys/wait.h>
 
 #include "debuggee.h"
 
@@ -17,14 +20,16 @@
 #define DR7_OFFSET offsetof(struct user, u_debugreg[7])
 
 enum {
-        TEST_BREAKPOINT_ADDR = 0x11c9,
         DUMP_SIZE = 128,
         ASCII_PRINTABLE_MIN = 32,
         ASCII_PRINTABLE_MAX = 126,
         WORD_LENGTH = 16,
         BYTE_LENGTH = 8,
         MAX_BYTE_VALUE = 0xFF,
-        INT3 = 0xCC
+        INT3 = 0xCC,
+        RESPONSE_BUFFER_SIZE = 10,
+        BYTE_MASK = 0xFFUL,
+        INDEX_STR_MAX_LEN = 20,
 };
 
 static inline unsigned long DR7_ENABLE_LOCAL(int bpno) {
@@ -35,25 +40,120 @@ static inline unsigned long DR7_RW_WRITE(int bpno) {
         return 0x1UL << (WORD_LENGTH + (bpno * 4));
 }
 
+static bool should_remove_breakpoints(const debuggee *dbgee) {
+        printf("There are %zu breakpoints set. Do you want to "
+               "remove all breakpoints and run until termination? (y/N): ",
+               dbgee->bp_handler->count);
+
+        char response[RESPONSE_BUFFER_SIZE];
+        if (fgets(response, sizeof(response), stdin) != NULL) {
+                size_t i = 0;
+                while (isspace((unsigned char)response[i])) {
+                        i++;
+                }
+                char answer = (char)tolower((unsigned char)response[i]);
+
+                if (answer == 'y') {
+                        return true;
+                }
+        }
+
+        return false;
+}
+
 void Help(void) {
-        printf("Z Anti-Anti-Debugger:\n");
-        printf("Available commands:\n");
-        printf("  help        - Display this help message\n");
-        printf("  exit        - Exit the debugger\n");
-        printf("  run         - Run the debuggee program\n");
-        printf("  step        - Execute the next instruction (single step)\n");
-        printf("  registers   - Display CPU registers (general-purpose and "
-               "debug registers) of the debuggee\n");
-        printf("  dump        - Dump memory at current RIP.\n");
-        printf("  dis         - Dump disassembled memory at current RIP.\n");
+        printf("Z Anti-Anti-Debugger - Command List:\n");
+        printf("==============================================================="
+               "\n");
+        printf("General Commands:\n");
+        printf("---------------------------------------------------------------"
+               "\n");
+        printf("  help            - Display this help message\n");
+        printf("  exit            - Exit the debugger\n");
+        printf("---------------------------------------------------------------"
+               "\n");
+
+        printf("Execution Commands:\n");
+        printf("---------------------------------------------------------------"
+               "\n");
+        printf("  run             - Run the debuggee program\n");
+        printf("  con             - Continue execution of the debuggee\n");
+        printf(
+            "  step            - Execute the next instruction (single step)\n");
+        printf("  over            - Step over the current instruction\n");
+        printf("  out             - Step out of the current function\n");
+        printf("---------------------------------------------------------------"
+               "\n");
+
+        printf("Breakpoint Commands:\n");
+        printf("---------------------------------------------------------------"
+               "\n");
+        printf("  points          - List all breakpoints\n");
+        printf("  break <addr>    - Set a software breakpoint at <addr>\n");
+        printf("  hbreak <addr>   - Set a hardware breakpoint at <addr>\n");
+        printf("  remove <idx>    - Remove the breakpoint at index <idx>\n");
+        printf("---------------------------------------------------------------"
+               "\n");
+
+        printf("Inspection Commands:\n");
+        printf("---------------------------------------------------------------"
+               "\n");
+        printf("  regs            - Display CPU registers (general-purpose and "
+               "debug)\n");
+        printf("  dump            - Dump memory at the current instruction "
+               "pointer\n");
+        printf("  dis             - Disassemble memory at the current "
+               "instruction pointer\n");
+        printf("==============================================================="
+               "\n");
 }
 
 int Run(debuggee *dbgee) {
-        if (dbgee->state != STOPPED) {
+        if (dbgee->bp_handler == NULL) {
+                (void)(fprintf(stderr,
+                               "Invalid debuggee or breakpoint handler.\n"));
+                return EXIT_FAILURE;
+        }
+
+        if (dbgee->has_run) {
+                if (dbgee->bp_handler->count > 0) {
+                        if (should_remove_breakpoints(dbgee)) {
+                                if (remove_all_breakpoints(dbgee) !=
+                                    EXIT_SUCCESS) {
+                                        return EXIT_FAILURE;
+                                }
+
+                                if (Continue(dbgee) != EXIT_SUCCESS) {
+                                        (void)(fprintf(
+                                            stderr,
+                                            "Failed to continue execution.\n"));
+                                        return EXIT_FAILURE;
+                                }
+
+                                printf(
+                                    "Debuggee is running until termination.\n");
+                                return EXIT_SUCCESS;
+                        }
+                        printf("Continuing execution with existing "
+                               "breakpoints.\n");
+                }
+        } else {
+                dbgee->has_run = true;
+        }
+
+        if (Continue(dbgee) != EXIT_SUCCESS) {
+                (void)(fprintf(stderr, "Failed to continue execution.\n"));
+                return EXIT_FAILURE;
+        }
+
+        return EXIT_SUCCESS;
+}
+
+int Continue(debuggee *dbgee) {
+        if (!dbgee->has_run) {
                 (void)(fprintf(
                     stderr,
-                    "Debuggee is not in a stopped state. Current state: %d\n",
-                    dbgee->state));
+                    "Warning: 'run' must be executed before 'continue'.\n"));
                 return EXIT_FAILURE;
         }
 
@@ -165,22 +265,92 @@ int SetSoftwareBreakpoint(debuggee *dbgee, const char *arg) {
         return EXIT_SUCCESS;
 }
 
-// method
-// line_number
-// address
 int SetHardwareBreakpoint(debuggee *dbgee, const char *arg) {
+        uintptr_t address = strtoull(arg, NULL, 0);
+        if (address == 0) {
+                (void)(fprintf(stderr, "Invalid address: %s\n", arg));
+                return EXIT_FAILURE;
+        }
+
+        int bpno = -1;
+        unsigned long dr0;
+        unsigned long dr1;
+        unsigned long dr2;
+        unsigned long dr3;
+        if (read_debug_register(dbgee->pid, DR0_OFFSET, &dr0) != 0) {
+                return EXIT_FAILURE;
+        }
+        if (read_debug_register(dbgee->pid, DR1_OFFSET, &dr1) != 0) {
+                return EXIT_FAILURE;
+        }
+        if (read_debug_register(dbgee->pid, DR2_OFFSET, &dr2) != 0) {
+                return EXIT_FAILURE;
+        }
+        if (read_debug_register(dbgee->pid, DR3_OFFSET, &dr3) != 0) {
+                return EXIT_FAILURE;
+        }
+
+        if (dr0 == 0) {
+                bpno = 0;
+        } else if (dr1 == 0) {
+                bpno = 1;
+        } else if (dr2 == 0) {
+                bpno = 2;
+        } else if (dr3 == 0) {
+                bpno = 3;
+        } else {
+                (void)(fprintf(stderr,
+                        "No available hardware breakpoint registers.\n"));
+                return EXIT_FAILURE;
+        }
+
+        unsigned long dr_offset;
+        switch (bpno) {
+        case 0:
+                dr_offset = DR0_OFFSET;
+                break;
+        case 1:
+                dr_offset = DR1_OFFSET;
+                break;
+        case 2:
+                dr_offset = DR2_OFFSET;
+                break;
+        case 3:
+                dr_offset = DR3_OFFSET;
+                break;
+        default:
+                (void)(fprintf(stderr, "Invalid breakpoint number.\n"));
+                return EXIT_FAILURE;
+        }
+
+        if (set_debug_register(dbgee->pid, dr_offset, address) != 0) {
+                (void)(fprintf(stderr, "Failed to set DR%d to 0x%lx.\n", bpno,
+                        address));
+                return EXIT_FAILURE;
+        }
+
+        if (configure_dr7(dbgee->pid, bpno, 0x0, 0x0) != 0) { // condition=00 (execute), length=00 (1 byte)
+                (void)(fprintf(stderr, "Failed to configure DR7 for breakpoint %d.\n",
+                        bpno));
+                return EXIT_FAILURE;
+        }
+
+        size_t bp_index = add_hardware_breakpoint(dbgee->bp_handler, address);
+        printf("Hardware breakpoint set at 0x%lx [Index: %zu, DR%d]\n", address,
+               bp_index, bpno);
+
         return EXIT_SUCCESS;
 }
 
 int RemoveBreakpoint(debuggee *dbgee, const char *arg) {
-        size_t index = strtoull(arg, NULL, 10);
+        size_t index = strtoull(arg, NULL, RESPONSE_BUFFER_SIZE);
         if (index >= dbgee->bp_handler->count) {
                 (void)(fprintf(stderr, "Invalid breakpoint index: %zu\n",
                                index));
                 return EXIT_FAILURE;
         }
 
-        Breakpoint *bp = &dbgee->bp_handler->breakpoints[index];
+        breakpoint *bp = &dbgee->bp_handler->breakpoints[index];
 
         if (bp->bp_t == SOFTWARE_BP) {
                 if (write_memory_byte(dbgee->pid, bp->data.sw_bp.address,
@@ -262,6 +432,7 @@ int RemoveBreakpoint(debuggee *dbgee, const char *arg) {
                         return EXIT_FAILURE;
                 }
 
+                /*
                 if (configure_dr7(dbgee->pid, dr_index) != 0) {
                         (void)(fprintf(
                             stderr,
@@ -269,6 +440,7 @@ int RemoveBreakpoint(debuggee *dbgee, const char *arg) {
                             dr_index));
                         return EXIT_FAILURE;
                 }
+                */
 
                 printf(
                     "Hardware breakpoint removed at 0x%lx [Index: %zu, DR%d]\n",
@@ -421,17 +593,19 @@ int StepOut(debuggee *dbgee) {
         return EXIT_SUCCESS;
 }
 
-int configure_dr7(pid_t pid, int bpno) {
-        unsigned long dr7;
-        read_debug_register(pid, DR7_OFFSET, &dr7);
+int configure_dr7(pid_t pid, int bpno, int condition, int length) {
+    unsigned long dr7;
 
-        // Configure DR7 to enable the breakpoint
-        // Example: Enable local breakpoint, condition on write, 1-byte length
-        dr7 |= DR7_ENABLE_LOCAL(bpno); // Local enable for breakpoint bpno
-        dr7 |= DR7_RW_WRITE(
-            bpno); // RW=01 (Write), LEN=00 (1 byte) for breakpoint bpno
+    if (read_debug_register(pid, DR7_OFFSET, &dr7) != 0) {
+        return EXIT_FAILURE;
+    }
 
-        return set_debug_register(pid, DR7_OFFSET, dr7);
+    dr7 |= DR7_ENABLE_LOCAL(bpno);
+    dr7 &= ~(0xF << (16 + bpno * 4));
+    dr7 |= (condition & 0x3) << (16 + bpno * 4);
+    dr7 |= (length & 0x3) << (18 + bpno * 4);
+
+    return set_debug_register(pid, DR7_OFFSET, dr7);
 }
 
 int read_debug_register(pid_t pid, unsigned long offset, unsigned long *value) {
@@ -514,7 +688,7 @@ int write_memory_byte(pid_t pid, unsigned long address, uint8_t byte) {
         }
 
         size_t byte_offset = address % sizeof(long);
-        word = (word & ~(0xFFUL << (BYTE_LENGTH * byte_offset))) |
+        word = (word & ~(BYTE_MASK << (BYTE_LENGTH * byte_offset))) |
                ((unsigned long)byte << (BYTE_LENGTH * byte_offset));
 
         if (ptrace(PTRACE_POKEDATA, pid, address & ~(sizeof(long) - 1), word) ==
@@ -534,7 +708,7 @@ bool is_software_breakpoint(debuggee *dbgee, size_t *bp_index_out) {
         }
 
         for (size_t i = 0; i < dbgee->bp_handler->count; ++i) {
-                Breakpoint *bp = &dbgee->bp_handler->breakpoints[i];
+                breakpoint *bp = &dbgee->bp_handler->breakpoints[i];
                 if (bp->bp_t == SOFTWARE_BP &&
                     bp->data.sw_bp.address == (rip - 1)) {
                         if (bp_index_out) {
@@ -547,10 +721,11 @@ bool is_software_breakpoint(debuggee *dbgee, size_t *bp_index_out) {
 }
 
 int handle_software_breakpoint(debuggee *dbgee, size_t bp_index) {
-        Breakpoint *bp = &dbgee->bp_handler->breakpoints[bp_index];
+        breakpoint *bp = &dbgee->bp_handler->breakpoints[bp_index];
         unsigned long address = bp->data.sw_bp.address;
         unsigned char original_byte = bp->data.sw_bp.originalData;
 
+        // 1: Restore the original byte at breakpoint address
         if (write_memory_byte(dbgee->pid, address, original_byte) != 0) {
                 (void)(fprintf(stderr,
                                "Failed to restore original byte at 0x%lx\n",
@@ -558,12 +733,78 @@ int handle_software_breakpoint(debuggee *dbgee, size_t bp_index) {
                 return EXIT_FAILURE;
         }
 
+        // 2: Adjust RIP to point back to the breakpoint address
         if (set_rip(dbgee, address) != 0) {
-                (void)(fprintf(stderr, "Failed to set current RIP to address 0x%lx.\n", address));
+                (void)(fprintf(stderr,
+                               "Failed to set current RIP to address 0x%lx.\n",
+                               address));
                 return EXIT_FAILURE;
         }
 
-        // maybe reinsert breakpoint afterwards using the "continue" function
+        // 3: Single-step the instruction
+        if (Step(dbgee) != 0) {
+                (void)(fprintf(stderr, "Failed to single step.\n"));
+                return EXIT_FAILURE;
+        }
 
+        // 4: Wait for the single-step to complete
+        int wait_status;
+        if (waitpid(dbgee->pid, &wait_status, 0) == -1) {
+                perror("waitpid");
+                return EXIT_FAILURE;
+        }
+
+        if (WIFEXITED(wait_status)) {
+                printf("Debuggee exited during single-step with status %d.\n",
+                       WEXITSTATUS(wait_status));
+                dbgee->state = TERMINATED;
+                return EXIT_FAILURE;
+        }
+
+        if (WIFSIGNALED(wait_status)) {
+                printf("Debuggee was killed by signal %d during single-step.\n",
+                       WTERMSIG(wait_status));
+                dbgee->state = TERMINATED;
+                return EXIT_FAILURE;
+        }
+
+        if (WIFSTOPPED(wait_status)) {
+                int sig = WSTOPSIG(wait_status);
+                if (sig != SIGTRAP) {
+                        exit(EXIT_FAILURE);
+                }
+        }
+
+        // 5: Re-insert the INT3 opcode to maintain the breakpoint
+        if (write_memory_byte(dbgee->pid, address, INT3) != 0) {
+                (void)(fprintf(stderr,
+                               "Failed to set software breakpoint at 0x%lx\n",
+                               address));
+                return EXIT_FAILURE;
+        }
+
+        return EXIT_SUCCESS;
+}
+
+int remove_all_breakpoints(debuggee *dbgee) {
+        while (dbgee->bp_handler->count > 0) {
+                size_t last_index = dbgee->bp_handler->count - 1;
+                char index_str[INDEX_STR_MAX_LEN];
+
+                if (snprintf(index_str, sizeof(index_str), "%zu", last_index) <
+                    0) {
+                        (void)(fprintf(stderr,
+                                       "Failed to format breakpoint index.\n"));
+                        return EXIT_FAILURE;
+                }
+
+                if (RemoveBreakpoint(dbgee, index_str) != EXIT_SUCCESS) {
+                        (void)(fprintf(
+                            stderr,
+                            "Failed to remove breakpoint at index %zu.\n",
+                            last_index));
+                        return EXIT_FAILURE;
+                }
+        }
         return EXIT_SUCCESS;
 }

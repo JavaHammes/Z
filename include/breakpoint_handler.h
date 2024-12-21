@@ -6,32 +6,32 @@ typedef enum { SOFTWARE_BP, HARDWARE_BP } breakpoint_t;
 typedef struct {
         uintptr_t address;    /**< Address where the breakpoint is set */
         uint8_t originalData; /**< Original data at the breakpoint address */
-} SoftwareBreakpoint;
+} software_breakpoint;
 
 typedef struct {
         uintptr_t address; /**< Address where the breakpoint is set */
-} HardwareBreakpoint;
+} hardware_breakpoint;
 
 typedef union {
-        SoftwareBreakpoint sw_bp;
-        HardwareBreakpoint hw_bp;
-} BreakpointData;
+        software_breakpoint sw_bp;
+        hardware_breakpoint hw_bp;
+} breakpoint_data;
 
 typedef struct {
-        breakpoint_t bp_t;   /**< Type of the breakpoint */
-        BreakpointData data; /**< Data of the breakpoint */
-} Breakpoint;
+        breakpoint_t bp_t;    /**< Type of the breakpoint */
+        breakpoint_data data; /**< Data of the breakpoint */
+} breakpoint;
 
 typedef struct {
-        Breakpoint *breakpoints; /**< Dynamic array of breakpoints */
+        breakpoint *breakpoints; /**< Dynamic array of breakpoints */
         size_t count;            /**< Current number of breakpoints */
         size_t capacity;         /**< Allocated capacity */
-} BreakpointHandler;
+} breakpoint_handler;
 
-BreakpointHandler *init_breakpoint_handler(void);
-void free_breakpoint_handler(BreakpointHandler *handler);
-size_t add_software_breakpoint(BreakpointHandler *handler, uintptr_t address,
+breakpoint_handler *init_breakpoint_handler(void);
+void free_breakpoint_handler(breakpoint_handler *handler);
+size_t add_software_breakpoint(breakpoint_handler *handler, uintptr_t address,
                                uint8_t originalData);
-size_t add_hardware_breakpoint(BreakpointHandler *handler, uintptr_t address);
-int remove_breakpoint(BreakpointHandler *handler, size_t index);
-void list_breakpoints(const BreakpointHandler *handler);
+size_t add_hardware_breakpoint(breakpoint_handler *handler, uintptr_t address);
+int remove_breakpoint(breakpoint_handler *handler, size_t index);
+void list_breakpoints(const breakpoint_handler *handler);
