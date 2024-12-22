@@ -35,6 +35,7 @@ enum {
         DR7_MASK_LEN_BITS = 0x3,
         DR7_RW_BASE_SHIFT = 16,
         DR7_LEN_BASE_SHIFT = 18,
+        INT3_OPCODE = 0xCC,
 };
 
 static inline unsigned long DR7_ENABLE_LOCAL(int bpno) {
@@ -242,25 +243,28 @@ int Registers(debuggee *dbgee) {
         return EXIT_SUCCESS;
 }
 
-uint64_t add_breakpoint(pid_t pid, uint64_t addr) {
-	uint64_t int3 = 0xCC;
+/*
+uint64_t set_breakpoint(pid_t pid, uint64_t addr) {
+	uint64_t int3 = INT3_OPCODE;
 	uint64_t code_at_addr = ptrace(PTRACE_PEEKDATA, pid, addr, NULL);
-	uint64_t code_break = (code_at_addr & ~0xFF) | int3;
+	uint64_t code_break = (code_at_addr & ~MAX_BYTE_VALUE) | int3;
 
 	ptrace(PTRACE_POKEDATA, pid, addr, code_break);
 
 	return code_at_addr;
 }
+*/
 
-uint64_t replace_breakpoint(pid_t pid, uint64_t addr, uint64_t old_byte) {
-	uint64_t int3 = old_byte;
+/*
+int replace_breakpoint(pid_t pid, uint64_t addr, uint64_t old_byte) {
 	uint64_t code_at_addr = ptrace(PTRACE_PEEKDATA, pid, addr, NULL);
-	uint64_t code_break = (code_at_addr & ~0xFF) | int3;
+	uint64_t code_restored = (code_at_addr & ~MAX_BYTE_VALUE) | old_byte;
 
-	ptrace(PTRACE_POKEDATA, pid, addr, code_break);
+	ptrace(PTRACE_POKEDATA, pid, addr, code_restored);
 
-	return code_at_addr;
+	return EXIT_SUCCESS;
 }
+*/
 
 int SetSoftwareBreakpoint(debuggee *dbgee, const char *arg) {
         uintptr_t address = strtoull(arg, NULL, 0);
@@ -276,7 +280,7 @@ int SetSoftwareBreakpoint(debuggee *dbgee, const char *arg) {
                 return EXIT_FAILURE;
         }
 
-        uint64_t original_byte = add_breakpoint(dbgee->pid, address);
+        uint64_t original_byte = set_sw_breakpoint(dbgee->pid, address);
 
         size_t bp_index =
             add_software_breakpoint(dbgee->bp_handler, address, original_byte);
@@ -382,19 +386,13 @@ int RemoveBreakpoint(debuggee *dbgee, const char *arg) {
         breakpoint *bp = &dbgee->bp_handler->breakpoints[index];
 
         if (bp->bp_t == SOFTWARE_BP) {
-                replace_breakpoint(dbgee->pid, bp->data.sw_bp.address, bp->data.sw_bp.original_byte);
-                // TODO: correct this
-                /*
-                if (write_memory_byte(dbgee->pid, bp->data.sw_bp.address,
-
-                                      bp->data.sw_bp.original_byte) != 0) {
+                if (replace_sw_breakpoint(dbgee->pid, bp->data.sw_bp.address, bp->data.sw_bp.original_byte) != EXIT_SUCCESS) {
                         (void)(fprintf(
                             stderr,
                             "Failed to remove software breakpoint at 0x%lx\n",
                             bp->data.sw_bp.address));
                         return EXIT_FAILURE;
                 }
-                */
                 printf("Software breakpoint removed at 0x%lx [Index: %zu]\n",
                        bp->data.sw_bp.address, index);
         } else if (bp->bp_t == HARDWARE_BP) {
@@ -678,6 +676,42 @@ int read_rip(debuggee *dbgee, unsigned long *rip) {
         return EXIT_SUCCESS;
 }
 
+uint64_t set_sw_breakpoint(pid_t pid, uint64_t addr) {
+        errno = 0;
+	uint64_t int3 = INT3_OPCODE;
+	uint64_t code_at_addr = ptrace(PTRACE_PEEKDATA, pid, addr, NULL);
+        if (code_at_addr == (uint64_t)-1 && errno != 0) {
+                perror("Error reading data with PTRACE_PEEKDATA");
+                return (uint64_t)-1;
+        }
+	uint64_t code_break = (code_at_addr & ~MAX_BYTE_VALUE) | int3;
+
+	if (ptrace(PTRACE_POKEDATA, pid, addr, code_break) == -1) {
+                perror("Error writing data with PTRACE_POKEDATA");
+                return (uint64_t)-1;
+        }
+
+	return code_at_addr;
+}
+
+int replace_sw_breakpoint(pid_t pid, uint64_t addr, uint64_t old_byte) {
+        errno = 0;
+	uint64_t code_at_addr = ptrace(PTRACE_PEEKDATA, pid, addr, NULL);
+        if (code_at_addr == (uint64_t)-1 && errno != 0) {
+                perror("Error reading data with PTRACE_PEEKDATA");
+                return EXIT_FAILURE;
+        }
+
+	uint64_t code_restored = (code_at_addr & ~MAX_BYTE_VALUE) | old_byte;
+
+	if (ptrace(PTRACE_POKEDATA, pid, addr, code_restored) == -1) {
+                perror("Error writing data with PTRACE_POKEDATA");
+                return EXIT_FAILURE;
+        }
+
+	return EXIT_SUCCESS;
+}
+
 int read_memory(pid_t pid, unsigned long address, unsigned char *buf,
                 size_t size) {
         size_t i = 0;
@@ -733,7 +767,12 @@ int handle_software_breakpoint(debuggee *dbgee, size_t bp_index) {
                 return EXIT_FAILURE;
         }
 
-        replace_breakpoint(dbgee->pid, address, original_byte);
+        if (replace_sw_breakpoint(dbgee->pid, address, original_byte) != EXIT_SUCCESS) {
+                (void)(fprintf(
+                    stderr,
+                    "Failed to remove software breakpoint while handling software breakpoint at 0x%lx\n", address));
+                return EXIT_FAILURE;
+        }
 
         // 3: Single-step the instruction
         if (Step(dbgee) != 0) {
@@ -771,7 +810,12 @@ int handle_software_breakpoint(debuggee *dbgee, size_t bp_index) {
         }
 
         // 5: Re-insert the INT3 opcode to maintain the breakpoint
-        add_breakpoint(dbgee->pid, address);
+        if (set_sw_breakpoint(dbgee->pid, address) == (uint64_t)-1) {
+                (void)(fprintf(
+                    stderr,
+                    "Failed to re-insert software breakpoint while handling software breakpoint at 0x%lx\n", address));
+                return EXIT_FAILURE;
+        }
 
         return EXIT_SUCCESS;
 }

@@ -22,20 +22,17 @@ int main(int argc, char **argv) {
         debugger dbg;
         init_debugger(&dbg, debuggee_name);
 
-        // don't know how optimal this is but works for now :-)
-        while (true) {
-                if (start_debuggee(&dbg) != 0) {
-                        (void)(fprintf(stderr, "Failed to start debuggee.\n"));
-                        free_debugger(&dbg);
-                        return EXIT_FAILURE;
-                }
+        if (start_debuggee(&dbg) != 0) {
+                (void)(fprintf(stderr, "Failed to start debuggee.\n"));
+                free_debugger(&dbg);
+                return EXIT_FAILURE;
+        }
 
-                if (trace_debuggee(&dbg) != 0) {
-                        (void)(fprintf(stderr,
-                                       "Error while tracing debuggee.\n"));
-                        free_debugger(&dbg);
-                        return EXIT_FAILURE;
-                }
+        if (trace_debuggee(&dbg) != 0) {
+                (void)(fprintf(stderr,
+                               "Error while tracing debuggee.\n"));
+                free_debugger(&dbg);
+                return EXIT_FAILURE;
         }
 
         free_debugger(&dbg);
