@@ -133,19 +133,19 @@ int handle_user_input(debugger *dbg, command_t cmd_type, const char *arg) {
                 if (Step(&dbg->dbgee) != 0) {
                         printf("Failed to single step.\n");
                 }
-                return PROMPT_USER_AGAIN;
+                return DONT_PROMPT_USER_AGAIN;
 
         case DBG_STEP_OVER:
                 if (StepOver(&dbg->dbgee) != 0) {
                         printf("Failed to step over.\n");
                 }
-                return PROMPT_USER_AGAIN;
+                return DONT_PROMPT_USER_AGAIN;
 
         case DBG_STEP_OUT:
                 if (StepOut(&dbg->dbgee) != 0) {
                         printf("Failed to step out.\n");
                 }
-                return PROMPT_USER_AGAIN;
+                return DONT_PROMPT_USER_AGAIN;
 
         default:
                 printf("Unhandled command type.\n");

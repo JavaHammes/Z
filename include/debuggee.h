@@ -46,6 +46,9 @@ int read_memory(pid_t pid, unsigned long address, unsigned char *buf,
 uint64_t set_sw_breakpoint(pid_t pid, uint64_t addr);
 int replace_sw_breakpoint(pid_t pid, uint64_t addr, uint64_t old_byte);
 bool is_software_breakpoint(debuggee *dbgee, size_t *bp_index_out);
+int set_temp_sw_breakpoint(debuggee *dbgee, uint64_t addr);
 int handle_software_breakpoint(debuggee *dbgee, size_t bp_index);
 int remove_all_breakpoints(debuggee *dbgee);
 bool breakpoint_exists(const debuggee *dbgee, unsigned long address);
+
+bool is_call_instruction(debuggee *dbgee, unsigned long rip);

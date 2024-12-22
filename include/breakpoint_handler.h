@@ -1,3 +1,4 @@
+#include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
 
@@ -21,6 +22,7 @@ typedef union {
 typedef struct {
         breakpoint_t bp_t;    /**< Type of the breakpoint */
         breakpoint_data data; /**< Data of the breakpoint */
+        bool temporary;
 } breakpoint;
 
 typedef struct {

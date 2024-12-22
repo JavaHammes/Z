@@ -1,3 +1,4 @@
+#include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -42,6 +43,7 @@ size_t add_software_breakpoint(breakpoint_handler *handler, uintptr_t address,
         bp.bp_t = SOFTWARE_BP;
         bp.data.sw_bp.address = address;
         bp.data.sw_bp.original_byte = original_byte;
+        bp.temporary = false;
 
         handler->breakpoints[handler->count++] = bp;
 
@@ -66,6 +68,7 @@ size_t add_hardware_breakpoint(breakpoint_handler *handler, uintptr_t address) {
         breakpoint bp;
         bp.bp_t = HARDWARE_BP;
         bp.data.hw_bp.address = address;
+        bp.temporary = false;
 
         handler->breakpoints[handler->count++] = bp;
 

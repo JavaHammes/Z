@@ -36,8 +36,9 @@ enum {
         DR7_RW_BASE_SHIFT = 16,
         DR7_LEN_BASE_SHIFT = 18,
         INT3_OPCODE = 0xCC,
+        MAX_X86_INSTRUCT_LEN = 15,
+        NEXT_INSTRUCTION_OFFSET = 5,
 };
-
 static inline unsigned long DR7_ENABLE_LOCAL(int bpno) {
         return 0x1UL << (bpno * 2);
 }
@@ -562,30 +563,84 @@ int Step(debuggee *dbgee) {
                 perror("ptrace SINGLESTEP");
                 return EXIT_FAILURE;
         }
+        dbgee->state = RUNNING;
 
         return EXIT_SUCCESS;
 }
 
-// Are equal to "Step" for now.
-// Need to implement breakpoints first.
-// TODO: implement
 int StepOver(debuggee *dbgee) {
-        if (ptrace(PTRACE_SINGLESTEP, dbgee->pid, NULL, NULL) == -1) {
-                perror("ptrace SINGLESTEP");
+        unsigned long rip;
+        if (read_rip(dbgee, &rip) != 0) {
+                (void)(fprintf(stderr, "Failed to read RIP for StepOver.\n"));
                 return EXIT_FAILURE;
         }
 
-        return EXIT_SUCCESS;
+        bool is_call = is_call_instruction(dbgee, rip);
+        if (is_call) {
+                // Set temporary breakpoint at the instruction after the call
+                // instruction. On x86_64 we know that we need to add 5. 1 byte
+                // for oppcode and 4 for the relative offset.
+
+                unsigned long return_addr = rip + NEXT_INSTRUCTION_OFFSET;
+
+                if (set_temp_sw_breakpoint(dbgee, return_addr) !=
+                    EXIT_SUCCESS) {
+                        (void)(fprintf(stderr, "Failed to set temporary "
+                                               "breakpoint for StepOver.\n"));
+                        return EXIT_FAILURE;
+                }
+
+                // Continue to that instruction
+                if (ptrace(PTRACE_CONT, dbgee->pid, NULL, NULL) == -1) {
+                        perror("ptrace CONT");
+                        return EXIT_FAILURE;
+                }
+                dbgee->state = RUNNING;
+
+                return EXIT_SUCCESS;
+        }
+
+        return Step(dbgee);
 }
 
-// TODO: implement
 int StepOut(debuggee *dbgee) {
-        if (ptrace(PTRACE_SINGLESTEP, dbgee->pid, NULL, NULL) == -1) {
-                perror("ptrace SINGLESTEP");
-                return EXIT_FAILURE;
-        }
+    unsigned long return_addr;
+    struct user_regs_struct regs;
 
-        return EXIT_SUCCESS;
+    if (ptrace(PTRACE_GETREGS, dbgee->pid, NULL, &regs) == -1) {
+        perror("ptrace GETREGS");
+        return EXIT_FAILURE;
+    }
+
+    if (regs.rbp != 0) {
+        errno = 0;
+        return_addr = ptrace(PTRACE_PEEKDATA, dbgee->pid, regs.rbp + BYTE_LENGTH, NULL);
+        if (return_addr == (unsigned long)-1 && errno != 0) {
+            perror("ptrace PEEKDATA [rbp + 8]");
+            return EXIT_FAILURE;
+        }
+    } else {
+        errno = 0;
+        return_addr = ptrace(PTRACE_PEEKDATA, dbgee->pid, regs.rsp, NULL);
+        if (return_addr == (unsigned long)-1 && errno != 0) {
+            perror("ptrace PEEKDATA [rsp]");
+            return EXIT_FAILURE;
+        }
+    }
+
+    if (set_temp_sw_breakpoint(dbgee, return_addr) != EXIT_SUCCESS) {
+        (void)(fprintf(stderr, "Failed to set temporary breakpoint for StepOut.\n"));
+        return EXIT_FAILURE;
+    }
+
+    if (ptrace(PTRACE_CONT, dbgee->pid, NULL, NULL) == -1) {
+        perror("ptrace CONT");
+        return EXIT_FAILURE;
+    }
+
+    dbgee->state = RUNNING;
+
+    return EXIT_SUCCESS;
 }
 
 int configure_dr7(pid_t pid, int bpno, int condition, int length, bool enable) {
@@ -673,6 +728,29 @@ uint64_t set_sw_breakpoint(pid_t pid, uint64_t addr) {
         return code_at_addr;
 }
 
+int set_temp_sw_breakpoint(debuggee *dbgee, uint64_t addr) {
+        uint64_t original_byte = set_sw_breakpoint(dbgee->pid, addr);
+        if (original_byte == (uint64_t)-1) {
+                (void)(fprintf(stderr,
+                               "Failed to set temporary breakpoint at 0x%lx.\n",
+                               addr));
+                return EXIT_FAILURE;
+        }
+
+        size_t bp_index =
+            add_software_breakpoint(dbgee->bp_handler, addr, original_byte);
+        if (bp_index == (size_t)-1) {
+                (void)(fprintf(
+                    stderr,
+                    "Failed to add temporary breakpoint to handler.\n"));
+                return EXIT_FAILURE;
+        }
+
+        dbgee->bp_handler->breakpoints[bp_index].temporary = true;
+
+        return EXIT_SUCCESS;
+}
+
 int replace_sw_breakpoint(pid_t pid, uint64_t addr, uint64_t old_byte) {
         errno = 0;
         uint64_t code_at_addr = ptrace(PTRACE_PEEKDATA, pid, addr, NULL);
@@ -738,7 +816,6 @@ int handle_software_breakpoint(debuggee *dbgee, size_t bp_index) {
         unsigned long address = bp->data.sw_bp.address;
         unsigned char original_byte = bp->data.sw_bp.original_byte;
 
-        // 1: Adjust RIP to point back to the breakpoint address
         if (set_rip(dbgee, address) != 0) {
                 (void)(fprintf(stderr,
                                "Failed to set current RIP to address 0x%lx.\n",
@@ -755,13 +832,11 @@ int handle_software_breakpoint(debuggee *dbgee, size_t bp_index) {
                 return EXIT_FAILURE;
         }
 
-        // 3: Single-step the instruction
         if (Step(dbgee) != 0) {
                 (void)(fprintf(stderr, "Failed to single step.\n"));
                 return EXIT_FAILURE;
         }
 
-        // 4: Wait for the single-step to complete
         int wait_status;
         if (waitpid(dbgee->pid, &wait_status, 0) == -1) {
                 perror("waitpid");
@@ -792,13 +867,23 @@ int handle_software_breakpoint(debuggee *dbgee, size_t bp_index) {
                 }
         }
 
-        // 5: Re-insert the INT3 opcode to maintain the breakpoint
-        if (set_sw_breakpoint(dbgee->pid, address) == (uint64_t)-1) {
-                (void)(fprintf(stderr,
-                               "Failed to re-insert software breakpoint while "
-                               "handling software breakpoint at 0x%lx\n",
-                               address));
-                return EXIT_FAILURE;
+        if (bp->temporary) {
+                if (remove_breakpoint(dbgee->bp_handler, bp_index) != 0) {
+                        (void)(fprintf(
+                            stderr,
+                            "Failed to remove temporary breakpoint at 0x%lx.\n",
+                            address));
+                        return EXIT_FAILURE;
+                }
+        } else {
+                if (set_sw_breakpoint(dbgee->pid, address) == (uint64_t)-1) {
+                        (void)(fprintf(
+                            stderr,
+                            "Failed to re-insert software breakpoint while "
+                            "handling software breakpoint at 0x%lx\n",
+                            address));
+                        return EXIT_FAILURE;
+                }
         }
 
         return EXIT_SUCCESS;
@@ -830,10 +915,51 @@ int remove_all_breakpoints(debuggee *dbgee) {
 bool breakpoint_exists(const debuggee *dbgee, unsigned long address) {
         for (size_t i = 0; i < dbgee->bp_handler->count; ++i) {
                 breakpoint *bp = &dbgee->bp_handler->breakpoints[i];
-                if ((bp->bp_t == SOFTWARE_BP || bp->bp_t == HARDWARE_BP) &&
+                if (bp->bp_t == SOFTWARE_BP &&
                     bp->data.sw_bp.address == address) {
                         return true;
                 }
+                if (bp->bp_t == HARDWARE_BP &&
+                    bp->data.hw_bp.address == address) {
+                        return true;
+                }
         }
+        return false;
+}
+
+bool is_call_instruction(debuggee *dbgee, unsigned long rip) {
+        unsigned char buf[MAX_X86_INSTRUCT_LEN];
+        if (read_memory(dbgee->pid, rip, buf, sizeof(buf)) != 0) {
+                (void)(fprintf(
+                    stderr,
+                    "Failed to read memory at 0x%lx for instruction check.\n",
+                    rip));
+                return false;
+        }
+
+        csh handle;
+        cs_insn *insn;
+        size_t count;
+
+        if (cs_open(CS_ARCH_X86, CS_MODE_64, &handle) != CS_ERR_OK) {
+                (void)(fprintf(
+                    stderr,
+                    "Failed to initialize Capstone for instruction check.\n"));
+                return false;
+        }
+
+        cs_option(handle, CS_OPT_SYNTAX, CS_OPT_SYNTAX_INTEL);
+        count = cs_disasm(handle, buf, sizeof(buf), rip, 1, &insn);
+        if (count > 0) {
+                bool is_call = false;
+                if (insn[0].id == X86_INS_CALL) {
+                        is_call = true;
+                }
+                cs_free(insn, count);
+                cs_close(&handle);
+                return is_call;
+        }
+
+        cs_close(&handle);
         return false;
 }
