@@ -4,7 +4,7 @@
 typedef enum { SOFTWARE_BP, HARDWARE_BP } breakpoint_t;
 
 typedef struct {
-        uintptr_t address; /**< Address where the breakpoint is set */
+        uintptr_t address;     /**< Address where the breakpoint is set */
         uint8_t original_byte; /**< Original data at the breakpoint address */
         size_t size;
 } software_breakpoint;

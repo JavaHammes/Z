@@ -101,10 +101,11 @@ void list_breakpoints(const breakpoint_handler *handler) {
         for (size_t i = 0; i < handler->count; ++i) {
                 printf("%zu\t", i);
                 if (handler->breakpoints[i].bp_t == SOFTWARE_BP) {
-                        printf("Software\t0x%lx\t\tOriginal Data: 0x%02X\n",
-                               (unsigned long)handler->breakpoints[i]
-                                   .data.sw_bp.address,
-                               handler->breakpoints[i].data.sw_bp.original_byte);
+                        printf(
+                            "Software\t0x%lx\t\tOriginal Data: 0x%02X\n",
+                            (unsigned long)handler->breakpoints[i]
+                                .data.sw_bp.address,
+                            handler->breakpoints[i].data.sw_bp.original_byte);
                 } else if (handler->breakpoints[i].bp_t == HARDWARE_BP) {
                         printf("Hardware\t0x%lx\t\t\n",
                                (unsigned long)handler->breakpoints[i]

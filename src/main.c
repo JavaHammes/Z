@@ -29,8 +29,7 @@ int main(int argc, char **argv) {
         }
 
         if (trace_debuggee(&dbg) != 0) {
-                (void)(fprintf(stderr,
-                               "Error while tracing debuggee.\n"));
+                (void)(fprintf(stderr, "Error while tracing debuggee.\n"));
                 free_debugger(&dbg);
                 return EXIT_FAILURE;
         }
