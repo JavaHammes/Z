@@ -17,6 +17,7 @@ typedef enum {
         DBG_STEP,
         DBG_STEP_OVER,
         DBG_STEP_OUT,
+        CLI_CLEAR,
         UNKNOWN
 } command_t;
 

@@ -25,6 +25,7 @@ static const command_mapping command_map[] = {
     {"step", DBG_STEP},
     {"over", DBG_STEP_OVER},
     {"out", DBG_STEP_OUT},
+    {"clear", CLI_CLEAR},
 };
 
 enum {
@@ -148,6 +149,10 @@ int handle_user_input(debugger *dbg, command_t cmd_type, const char *arg) {
                         printf("Failed to step out.\n");
                 }
                 return DONT_PROMPT_USER_AGAIN;
+
+        case CLI_CLEAR:
+                linenoiseClearScreen();
+                return PROMPT_USER_AGAIN;
 
         default:
                 printf("Unhandled command type.\n");
