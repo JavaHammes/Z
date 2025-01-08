@@ -1,4 +1,5 @@
 #include "linenoise.h"
+#include <errno.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -53,7 +54,7 @@ int handle_user_input(debugger *dbg, command_t cmd_type, const char *arg) {
                 free_debugger(dbg);
                 printf("Exiting debugger.\n");
                 exit(EXIT_SUCCESS);
-                return PROMPT_USER_AGAIN;
+                return DONT_PROMPT_USER_AGAIN;
 
         case CLI_HELP:
                 Help();
@@ -161,7 +162,18 @@ int read_and_handle_user_command(debugger *dbg) {
 
         linenoiseHistorySetMaxLen(100);
 
-        while ((input = linenoise("Z: ")) != NULL) {
+        while (true) {
+                if ((input = linenoise("Z: ")) == NULL) {
+                        /* Exit debugger on Ctrl + C*/
+                        if (errno == EAGAIN) {
+                                handle_user_input(dbg, CLI_EXIT, "");
+                        } else {
+                                free(input);
+                                free_debugger(dbg);
+                                exit(EXIT_FAILURE);
+                        }
+                }
+
                 linenoiseHistoryAdd(input);
 
                 input[strcspn(input, "\n")] = '\0';
