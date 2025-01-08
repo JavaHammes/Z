@@ -50,6 +50,16 @@ target_link_libraries(z_lib PUBLIC
     ${CAPSTONE_LIBRARIES}
 )
 
+add_library(linenoise STATIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/lib/linenoise/linenoise.c
+)
+
+target_include_directories(linenoise PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/lib/linenoise
+)
+
+target_link_libraries(z_lib PRIVATE linenoise)
+
 add_executable(z ${SRC_DIR}/main.c)
 target_link_libraries(z PRIVATE z_lib)
 set_target_properties(z PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${BIN_DIR})

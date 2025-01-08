@@ -1,3 +1,4 @@
+#include "linenoise.h"
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -158,32 +159,10 @@ int read_and_handle_user_command(debugger *dbg) {
         size_t len = 0;
         ssize_t read_len;
 
-        while (true) {
-                printf("Z: ");
-                (void)(fflush(stdout));
-                read_len = getline(&input, &len, stdin);
-                if (read_len == -1) {
-                        if (feof(stdin)) {
-                                free(input);
-                                free_debugger(dbg);
-                                exit(0);
-                        } else {
-                                perror("getlinehbreak");
-                                printf("Failed to read command. Continuing "
-                                       "execution.\n");
-                        }
+        linenoiseHistorySetMaxLen(100);
 
-                        free(input);
-
-                        if (ptrace(PTRACE_CONT, dbg->dbgee.pid, NULL, NULL) ==
-                            -1) {
-                                perror("ptrace CONT");
-                                return EXIT_FAILURE;
-                        }
-
-                        dbg->dbgee.state = RUNNING;
-                        return EXIT_SUCCESS;
-                }
+        while ((input = linenoise("Z: ")) != NULL) {
+                linenoiseHistoryAdd(input);
 
                 input[strcspn(input, "\n")] = '\0';
 
