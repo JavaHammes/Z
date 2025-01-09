@@ -52,3 +52,11 @@ int remove_all_breakpoints(debuggee *dbgee);
 bool breakpoint_exists(const debuggee *dbgee, unsigned long address);
 
 bool is_call_instruction(debuggee *dbgee, unsigned long rip);
+
+unsigned long get_load_base(debuggee *dbgee);
+unsigned long get_main_symbol_offset(debuggee *dbgee);
+unsigned long get_main_absolute_address(debuggee *dbgee);
+
+unsigned long get_module_base_address(pid_t pid, unsigned long rip,
+                                      char *module_name,
+                                      size_t module_name_size);

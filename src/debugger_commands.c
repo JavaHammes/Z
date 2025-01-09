@@ -4,7 +4,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/ptrace.h>
 
 #include "debuggee.h"
 #include "debugger.h"
@@ -96,7 +95,7 @@ int handle_user_input(debugger *dbg, command_t cmd_type, const char *arg) {
         case DBG_BREAK:
                 if (arg == NULL) {
                         printf("Usage: break "
-                               "<function_name|line_number|address>\n");
+                               "<adr>|*<offset>\n");
                         return PROMPT_USER_AGAIN;
                 }
                 if (SetSoftwareBreakpoint(&dbg->dbgee, arg) != 0) {
@@ -108,7 +107,7 @@ int handle_user_input(debugger *dbg, command_t cmd_type, const char *arg) {
         case DBG_HBREAK:
                 if (arg == NULL) {
                         printf("Usage: hbreak "
-                               "<function_name|line_number|address>\n");
+                               "<adr>|*<offset>\n");
                         return PROMPT_USER_AGAIN;
                 }
                 if (SetHardwareBreakpoint(&dbg->dbgee, arg) != 0) {

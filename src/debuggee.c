@@ -1,6 +1,9 @@
 #include <capstone/capstone.h>
+#include <capstone/x86.h>
 #include <ctype.h>
+#include <elf.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <signal.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -10,6 +13,7 @@
 #include <sys/ptrace.h>
 #include <sys/user.h>
 #include <sys/wait.h>
+#include <unistd.h>
 
 #include "debuggee.h"
 
@@ -38,7 +42,15 @@ enum {
         INT3_OPCODE = 0xCC,
         MAX_X86_INSTRUCT_LEN = 15,
         NEXT_INSTRUCTION_OFFSET = 5,
+        MODULE_NAME_SIZE = 256,
+        LINE_BUFFER_SIZE = 512,
+        HEX_BASE = 16,
+        PERMS_SIZE = 5,
+        DEV_SIZE = 6,
+        PATHNAME_SIZE = 256,
+        NUM_ITEMS_THRESHOLD = 7,
 };
+
 static inline unsigned long DR7_ENABLE_LOCAL(int bpno) {
         return 0x1UL << (bpno * 2);
 }
@@ -458,10 +470,19 @@ void ListBreakpoints(debuggee *dbgee) { list_breakpoints(dbgee->bp_handler); }
 int Dump(debuggee *dbgee) {
         unsigned long rip;
         unsigned char buf[DUMP_SIZE];
+        unsigned long base_address;
+        char module_name[MODULE_NAME_SIZE] = {0};
 
         if (read_rip(dbgee, &rip) != 0) {
                 (void)(fprintf(stderr, "Failed to retrieve current RIP.\n"));
                 return -1;
+        }
+
+        base_address = get_module_base_address(dbgee->pid, rip, module_name,
+                                               sizeof(module_name));
+        if (base_address == 0) {
+                (void)(fprintf(stderr, "Failed to retrieve base address.\n"));
+                return EXIT_FAILURE;
         }
 
         if (read_memory(dbgee->pid, rip, buf, sizeof(buf)) != 0) {
@@ -470,7 +491,9 @@ int Dump(debuggee *dbgee) {
                 return EXIT_FAILURE;
         }
 
-        printf("Memory dump at 0x%016lx:\n", rip);
+        printf("Memory dump in module '%s' at RIP: 0x%016lx (Offset: 0x%lx)\n",
+               module_name, rip, rip - base_address);
+
         printf("---------------------------------------------------------------"
                "----------------------\n");
         printf("Offset              Hexadecimal                                "
@@ -479,7 +502,9 @@ int Dump(debuggee *dbgee) {
                "----------------------\n");
 
         for (size_t i = 0; i < sizeof(buf); i += WORD_LENGTH) {
-                printf("0x%016lx: ", rip + i);
+                unsigned long current_address = rip + i;
+                unsigned long offset = current_address - base_address;
+                printf("0x%016lx (0x%lx): ", current_address, offset);
 
                 for (size_t j = 0; j < WORD_LENGTH; ++j) {
                         if (i + j < sizeof(buf)) {
@@ -515,9 +540,18 @@ int Disassemble(debuggee *dbgee) {
         csh handle;
         cs_insn *insn;
         size_t count;
+        unsigned long base_address;
+        char module_name[MODULE_NAME_SIZE] = {0};
 
         if (read_rip(dbgee, &rip) != 0) {
                 (void)(fprintf(stderr, "Failed to retrieve current RIP.\n"));
+                return EXIT_FAILURE;
+        }
+
+        base_address = get_module_base_address(dbgee->pid, rip, module_name,
+                                               sizeof(module_name));
+        if (base_address == 0) {
+                (void)(fprintf(stderr, "Failed to retrieve base address.\n"));
                 return EXIT_FAILURE;
         }
 
@@ -534,15 +568,21 @@ int Disassemble(debuggee *dbgee) {
 
         cs_option(handle, CS_OPT_SYNTAX, CS_OPT_SYNTAX_INTEL);
 
-        printf("Disassembling memory at current RIP: 0x%016lx\n", rip);
+        unsigned long offset = rip - base_address;
+        printf("Disassembling memory in module '%s' at RIP: 0x%016lx (Offset: "
+               "0x%lx)\n",
+               module_name, rip, offset);
 
         count = cs_disasm(handle, buf, sizeof(buf), rip, 0, &insn);
         if (count > 0) {
                 printf("-------------------------------------------------------"
                        "------------------------------\n");
                 for (size_t i = 0; i < count; i++) {
-                        printf("0x%016llx: %-10s\t%s\n",
-                               (unsigned long long)insn[i].address,
+                        unsigned long insn_offset =
+                            insn[i].address - base_address;
+                        printf("0x%016lx (0x%lx): %-10s\t%s\n",
+                               insn[i].address, // Absolute address
+                               insn_offset,     // Offset from base
                                insn[i].mnemonic, insn[i].op_str);
                 }
 
@@ -577,10 +617,10 @@ int StepOver(debuggee *dbgee) {
 
         bool is_call = is_call_instruction(dbgee, rip);
         if (is_call) {
+
                 // Set temporary breakpoint at the instruction after the call
                 // instruction. On x86_64 we know that we need to add 5. 1 byte
                 // for oppcode and 4 for the relative offset.
-
                 unsigned long return_addr = rip + NEXT_INSTRUCTION_OFFSET;
 
                 if (set_temp_sw_breakpoint(dbgee, return_addr) !=
@@ -603,44 +643,49 @@ int StepOver(debuggee *dbgee) {
         return Step(dbgee);
 }
 
+// TODO: FIX BUG
 int StepOut(debuggee *dbgee) {
-    unsigned long return_addr;
-    struct user_regs_struct regs;
+        unsigned long return_addr;
+        struct user_regs_struct regs;
 
-    if (ptrace(PTRACE_GETREGS, dbgee->pid, NULL, &regs) == -1) {
-        perror("ptrace GETREGS");
-        return EXIT_FAILURE;
-    }
-
-    if (regs.rbp != 0) {
-        errno = 0;
-        return_addr = ptrace(PTRACE_PEEKDATA, dbgee->pid, regs.rbp + BYTE_LENGTH, NULL);
-        if (return_addr == (unsigned long)-1 && errno != 0) {
-            perror("ptrace PEEKDATA [rbp + 8]");
-            return EXIT_FAILURE;
+        if (ptrace(PTRACE_GETREGS, dbgee->pid, NULL, &regs) == -1) {
+                perror("ptrace GETREGS");
+                return EXIT_FAILURE;
         }
-    } else {
-        errno = 0;
-        return_addr = ptrace(PTRACE_PEEKDATA, dbgee->pid, regs.rsp, NULL);
-        if (return_addr == (unsigned long)-1 && errno != 0) {
-            perror("ptrace PEEKDATA [rsp]");
-            return EXIT_FAILURE;
+
+        if (regs.rbp != 0) {
+                errno = 0;
+                return_addr = ptrace(PTRACE_PEEKDATA, dbgee->pid,
+                                     regs.rbp + BYTE_LENGTH, NULL);
+                if (return_addr == (unsigned long)-1 && errno != 0) {
+                        perror("ptrace PEEKDATA [rbp + 8]");
+                        return EXIT_FAILURE;
+                }
+        } else {
+                errno = 0;
+                return_addr =
+                    ptrace(PTRACE_PEEKDATA, dbgee->pid, regs.rsp, NULL);
+                if (return_addr == (unsigned long)-1 && errno != 0) {
+                        perror("ptrace PEEKDATA [rsp]");
+                        return EXIT_FAILURE;
+                }
         }
-    }
 
-    if (set_temp_sw_breakpoint(dbgee, return_addr) != EXIT_SUCCESS) {
-        (void)(fprintf(stderr, "Failed to set temporary breakpoint for StepOut.\n"));
-        return EXIT_FAILURE;
-    }
+        if (set_temp_sw_breakpoint(dbgee, return_addr) != EXIT_SUCCESS) {
+                (void)(fprintf(
+                    stderr,
+                    "Failed to set temporary breakpoint for StepOut.\n"));
+                return EXIT_FAILURE;
+        }
 
-    if (ptrace(PTRACE_CONT, dbgee->pid, NULL, NULL) == -1) {
-        perror("ptrace CONT");
-        return EXIT_FAILURE;
-    }
+        if (ptrace(PTRACE_CONT, dbgee->pid, NULL, NULL) == -1) {
+                perror("ptrace CONT");
+                return EXIT_FAILURE;
+        }
 
-    dbgee->state = RUNNING;
+        dbgee->state = RUNNING;
 
-    return EXIT_SUCCESS;
+        return EXIT_SUCCESS;
 }
 
 int configure_dr7(pid_t pid, int bpno, int condition, int length, bool enable) {
@@ -962,4 +1007,265 @@ bool is_call_instruction(debuggee *dbgee, unsigned long rip) {
 
         cs_close(&handle);
         return false;
+}
+
+unsigned long get_load_base(debuggee *dbgee) {
+        char maps_path[MODULE_NAME_SIZE];
+        (void)(snprintf(maps_path, sizeof(maps_path), "/proc/%d/maps",
+                        dbgee->pid));
+
+        FILE *maps = fopen(maps_path, "r");
+        if (!maps) {
+                perror("fopen maps");
+                return 0;
+        }
+
+        char line[LINE_BUFFER_SIZE];
+        unsigned long base_address = 0;
+
+        while (fgets(line, sizeof(line), maps)) {
+
+                // Each line has the format:
+                // address           perms offset  dev   inode      pathname
+                if (strstr(line, dbgee->name)) {
+                        char *dash = strchr(line, '-');
+                        if (!dash) {
+                                continue;
+                        }
+                        *dash = '\0';
+                        base_address = strtoul(line, NULL, HEX_BASE);
+                        break;
+                }
+        }
+
+        (void)(fclose(maps));
+
+        if (base_address == 0) {
+                (void)(fprintf(
+                    stderr, "Failed to find base address for %s in pid %d.\n",
+                    dbgee->name, dbgee->pid));
+        }
+
+        return base_address;
+}
+
+unsigned long get_main_symbol_offset(debuggee *dbgee) {
+        int fd = open(dbgee->name, O_RDONLY);
+        if (fd < 0) {
+                perror("open ELF file");
+                return 0;
+        }
+
+        Elf64_Ehdr ehdr;
+        if (read(fd, &ehdr, sizeof(ehdr)) != sizeof(ehdr)) {
+                perror("read ELF header");
+                close(fd);
+                return 0;
+        }
+
+        if (memcmp(ehdr.e_ident, ELFMAG, SELFMAG) != 0) {
+                (void)(fprintf(stderr, "Not a valid ELF file.\n"));
+                close(fd);
+                return 0;
+        }
+
+        if (lseek(fd, (off_t)ehdr.e_shoff, SEEK_SET) == -1) {
+                perror("lseek to section headers");
+                close(fd);
+                return 0;
+        }
+
+        Elf64_Shdr *shdrs = malloc((size_t)(ehdr.e_shentsize * ehdr.e_shnum));
+        if (!shdrs) {
+                perror("malloc for section headers");
+                close(fd);
+                return 0;
+        }
+
+        if (read(fd, shdrs, (size_t)(ehdr.e_shentsize * ehdr.e_shnum)) !=
+            (ssize_t)(ehdr.e_shentsize * ehdr.e_shnum)) {
+                perror("read section headers");
+                free(shdrs);
+                close(fd);
+                return 0;
+        }
+
+        Elf64_Shdr sh_strtab = shdrs[ehdr.e_shstrndx];
+        char *shstrtab = malloc(sh_strtab.sh_size);
+        if (!shstrtab) {
+                perror("malloc for shstrtab");
+                free(shdrs);
+                close(fd);
+                return 0;
+        }
+
+        if (lseek(fd, (off_t)sh_strtab.sh_offset, SEEK_SET) == -1) {
+                perror("lseek to shstrtab");
+                free(shstrtab);
+                free(shdrs);
+                close(fd);
+                return 0;
+        }
+
+        if (read(fd, shstrtab, sh_strtab.sh_size) !=
+            (ssize_t)sh_strtab.sh_size) {
+                perror("read shstrtab");
+                free(shstrtab);
+                free(shdrs);
+                close(fd);
+                return 0;
+        }
+
+        unsigned long main_offset = 0;
+        for (int i = 0; i < ehdr.e_shnum; i++) {
+                const char *section_name = shstrtab + shdrs[i].sh_name;
+                if (strcmp(section_name, ".symtab") == 0 ||
+                    strcmp(section_name, ".dynsym") == 0) {
+                        size_t num_symbols =
+                            shdrs[i].sh_size / shdrs[i].sh_entsize;
+                        Elf64_Sym *symtab = malloc(shdrs[i].sh_size);
+                        if (!symtab) {
+                                perror("malloc for symtab");
+                                continue;
+                        }
+
+                        if (lseek(fd, (off_t)shdrs[i].sh_offset, SEEK_SET) ==
+                            -1) {
+                                perror("lseek to symtab");
+                                free(symtab);
+                                continue;
+                        }
+
+                        if (read(fd, symtab, shdrs[i].sh_size) !=
+                            (ssize_t)shdrs[i].sh_size) {
+                                perror("read symtab");
+                                free(symtab);
+                                continue;
+                        }
+
+                        Elf64_Shdr strtab_shdr = shdrs[shdrs[i].sh_link];
+                        char *strtab = malloc(strtab_shdr.sh_size);
+                        if (!strtab) {
+                                perror("malloc for strtab");
+                                free(symtab);
+                                continue;
+                        }
+
+                        if (lseek(fd, (off_t)strtab_shdr.sh_offset, SEEK_SET) ==
+                            -1) {
+                                perror("lseek to strtab");
+                                free(strtab);
+                                free(symtab);
+                                continue;
+                        }
+
+                        if (read(fd, strtab, strtab_shdr.sh_size) !=
+                            (ssize_t)strtab_shdr.sh_size) {
+                                perror("read strtab");
+                                free(strtab);
+                                free(symtab);
+                                continue;
+                        }
+
+                        for (size_t j = 0; j < num_symbols; j++) {
+                                const char *sym_name =
+                                    strtab + symtab[j].st_name;
+                                if (strcmp(sym_name, "main") == 0) {
+                                        main_offset = symtab[j].st_value;
+                                        free(strtab);
+                                        free(symtab);
+                                        goto cleanup;
+                                }
+                        }
+
+                        free(strtab);
+                        free(symtab);
+                }
+        }
+
+cleanup:
+        if (main_offset == 0) {
+                (void)(fprintf(stderr, "'main' symbol not found in %s.\n",
+                               dbgee->name));
+        }
+
+        free(shstrtab);
+        free(shdrs);
+        close(fd);
+        return main_offset;
+}
+
+unsigned long get_main_absolute_address(debuggee *dbgee) {
+        unsigned long main_offset = get_main_symbol_offset(dbgee);
+        if (main_offset == 0) {
+                (void)(fprintf(stderr,
+                               "Failed to get 'main' symbol offset.\n"));
+                return 0;
+        }
+
+        unsigned long base_address = get_load_base(dbgee);
+        if (base_address == 0) {
+                (void)(fprintf(stderr, "Failed to get base address.\n"));
+                return 0;
+        }
+
+        unsigned long main_absolute = base_address + main_offset;
+        printf("'main' absolute address: 0x%lx\n", main_absolute);
+        return main_absolute;
+}
+
+unsigned long get_module_base_address(pid_t pid, unsigned long rip,
+                                      char *module_name,
+                                      size_t module_name_size) {
+        char maps_path[MODULE_NAME_SIZE];
+        (void)(snprintf(maps_path, sizeof(maps_path), "/proc/%d/maps", pid));
+
+        FILE *maps = fopen(maps_path, "r");
+        if (!maps) {
+                perror("fopen maps");
+                return 0;
+        }
+
+        char line[LINE_BUFFER_SIZE];
+        unsigned long base_address = 0;
+        module_name[0] = '\0';
+
+        while (fgets(line, sizeof(line), maps)) {
+                unsigned long start;
+                unsigned long end;
+                char perms[PERMS_SIZE];
+                unsigned long offset;
+                char dev[DEV_SIZE];
+                unsigned long inode;
+                char pathname[PATHNAME_SIZE] = {0};
+
+                int num_items = sscanf( // NOLINT(cert-err34-c)
+                    line, "%lx-%lx %4s %lx %5s %lu %s", &start, &end, perms,
+                    &offset, dev, &inode, pathname);
+
+                if (rip >= start && rip < end) {
+                        base_address = start;
+                        if (num_items >= NUM_ITEMS_THRESHOLD) {
+                                strncpy(module_name, pathname,
+                                        module_name_size - 1);
+                                module_name[module_name_size - 1] = '\0';
+                        } else {
+                                strncpy(module_name, "[anonymous]",
+                                        module_name_size - 1);
+                                module_name[module_name_size - 1] = '\0';
+                        }
+                        break;
+                }
+        }
+
+        (void)(fclose(maps));
+
+        if (base_address == 0) {
+                (void)(fprintf(stderr,
+                               "Failed to find base address containing RIP "
+                               "0x%lx in pid %d.\n",
+                               rip, pid));
+        }
+
+        return base_address;
 }

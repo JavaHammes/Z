@@ -17,8 +17,10 @@ void init_debugger(debugger *dbg, const char *debuggee_name) {
         dbg->dbgee.pid = -1;
         dbg->dbgee.name = debuggee_name;
         dbg->dbgee.state = IDLE;
+
         // Could be NULL. TODO: Catch this.
         dbg->dbgee.bp_handler = init_breakpoint_handler();
+
         dbg->state = DETACHED;
 }
 
@@ -80,6 +82,7 @@ int start_debuggee(debugger *dbg) {
 
 int trace_debuggee(debugger *dbg) {
         bool ptrace_options_set = false;
+        bool main_startup_breakpoint_set = false;
 
         dbg->state = ATTACHED;
         while (dbg->state == ATTACHED) {
@@ -126,6 +129,31 @@ int trace_debuggee(debugger *dbg) {
                         int sig = WSTOPSIG(status);
                         printf("Child %d stopped by signal %d.\n", pid, sig);
                         dbg->dbgee.state = STOPPED;
+
+                        if (main_startup_breakpoint_set == false) {
+                                unsigned long main_address =
+                                    get_main_absolute_address(&dbg->dbgee);
+
+                                if (main_address == 0) {
+                                        (void)(fprintf(stderr,
+                                                       "Failed to retrieve "
+                                                       "'main' address.\n"));
+                                        return EXIT_FAILURE;
+                                }
+
+                                set_temp_sw_breakpoint(&dbg->dbgee,
+                                                       main_address);
+
+                                if (ptrace(PTRACE_CONT, dbg->dbgee.pid, NULL,
+                                           NULL) == -1) {
+                                        perror("ptrace CONT after setting "
+                                               "breakpoint");
+                                        return EXIT_FAILURE;
+                                }
+
+                                main_startup_breakpoint_set = true;
+                                continue;
+                        }
 
                         size_t bp_index;
                         bool sw_bp_hit =

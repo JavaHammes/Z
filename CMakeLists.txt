@@ -60,6 +60,12 @@ target_include_directories(linenoise PUBLIC
 
 target_link_libraries(z_lib PRIVATE linenoise)
 
+set_source_files_properties(
+    lib/linenoise/linenoise.c
+    PROPERTIES
+    COMPILE_FLAGS "-w"
+)
+
 add_executable(z ${SRC_DIR}/main.c)
 target_link_libraries(z PRIVATE z_lib)
 set_target_properties(z PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${BIN_DIR})
