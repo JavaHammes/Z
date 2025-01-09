@@ -31,6 +31,7 @@ static const command_mapping command_map[] = {
 enum {
         PROMPT_USER_AGAIN = 1,
         DONT_PROMPT_USER_AGAIN = 0,
+        LINENOISE_MAX_HISTORY_LENGTH = 100,
 };
 
 command_t get_command_type(const char *command) {
@@ -162,21 +163,18 @@ int handle_user_input(debugger *dbg, command_t cmd_type, const char *arg) {
 
 int read_and_handle_user_command(debugger *dbg) {
         char *input = NULL;
-        size_t len = 0;
-        ssize_t read_len;
 
-        linenoiseHistorySetMaxLen(100);
+        linenoiseHistorySetMaxLen(LINENOISE_MAX_HISTORY_LENGTH);
 
         while (true) {
-                if ((input = linenoise("Z: ")) == NULL) {
-                        /* Exit debugger on Ctrl + C*/
+                input = linenoise("Z: ");
+                if (input == NULL) {
                         if (errno == EAGAIN) {
                                 handle_user_input(dbg, CLI_EXIT, "");
-                        } else {
-                                free(input);
-                                free_debugger(dbg);
-                                exit(EXIT_FAILURE);
+                                continue;
                         }
+                        free_debugger(dbg);
+                        exit(EXIT_FAILURE);
                 }
 
                 linenoiseHistoryAdd(input);
