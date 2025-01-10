@@ -6,7 +6,7 @@
 		"dockerfile": "Dockerfile"
 	},
 	"features": {
-		"ghcr.io/devcontainers-extra/features/neovim-apt-get:1": {}
+		"ghcr.io/devcontainers-extra/features/vscode-cli:1": {}
 	},
 
 	// Features to add to the dev container. More info: https://containers.dev/features.
