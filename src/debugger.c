@@ -80,7 +80,7 @@ int start_debuggee(debugger *dbg) {
         return EXIT_SUCCESS;
 }
 
-int trace_debuggee(debugger *dbg) {
+int trace_debuggee(debugger *dbg) { // NOLINT
         bool ptrace_options_set = false;
         bool main_startup_breakpoint_set = false;
 

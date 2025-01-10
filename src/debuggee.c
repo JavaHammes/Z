@@ -91,41 +91,51 @@ void Help(void) {
         printf("General Commands:\n");
         printf("---------------------------------------------------------------"
                "\n");
-        printf("  help            - Display this help message\n");
-        printf("  exit            - Exit the debugger\n");
+        printf("  help                - Display this help message\n");
+        printf("  exit                - Exit the debugger\n");
         printf("---------------------------------------------------------------"
                "\n");
 
         printf("Execution Commands:\n");
         printf("---------------------------------------------------------------"
                "\n");
-        printf("  run             - Run the debuggee program\n");
-        printf("  con             - Continue execution of the debuggee\n");
-        printf("  step            - Execute the next instruction (single "
+        printf("  run                 - Run the debuggee program\n");
+        printf("  con                 - Continue execution of the debuggee\n");
+        printf("  step                - Execute the next instruction (single "
                "step)\n");
-        printf("  over            - Step over the current instruction\n");
-        printf("  out             - Step out of the current function\n");
+        printf("  over                - Step over the current instruction\n");
+        printf("  out                 - Step out of the current function\n");
         printf("---------------------------------------------------------------"
                "\n");
 
         printf("Breakpoint Commands:\n");
         printf("---------------------------------------------------------------"
                "\n");
-        printf("  points          - List all breakpoints\n");
-        printf("  break <addr>    - Set a software breakpoint at <addr>\n");
-        printf("  hbreak <addr>   - Set a hardware breakpoint at <addr>\n");
-        printf("  remove <idx>    - Remove the breakpoint at index <idx>\n");
+        printf("  points              - List all breakpoints\n");
+        printf("  break <addr>        - Set a software breakpoint at <addr>\n");
+        printf("  hbreak <addr>       - Set a hardware breakpoint at <addr>\n");
+        printf("  break *<offset>     - Set a software breakpoint at "
+               "base_address + <offset>\n");
+        printf("  hbreak *<offset>    - Set a hardware breakpoint at "
+               "base_address + <offset>\n");
+        printf("  break &<func_name>  - Set a software breakpoint at the "
+               "address of function <func_name>\n");
+        printf("  hbreak &<func_name> - Set a hardware breakpoint at the "
+               "address of function <func_name>\n");
+        printf(
+            "  remove <idx>        - Remove the breakpoint at index <idx>\n");
         printf("---------------------------------------------------------------"
                "\n");
 
         printf("Inspection Commands:\n");
         printf("---------------------------------------------------------------"
                "\n");
-        printf("  regs            - Display CPU registers (general-purpose and "
+        printf("  regs                - Display CPU registers (general-purpose "
+               "and "
                "debug)\n");
-        printf("  dump            - Dump memory at the current instruction "
+        printf("  dump                - Dump memory at the current instruction "
                "pointer\n");
-        printf("  dis             - Disassemble memory at the current "
+        printf("  dis                 - Disassemble memory at the current "
                "instruction pointer\n");
         printf("==============================================================="
                "\n");
@@ -257,7 +267,11 @@ int Registers(debuggee *dbgee) {
 }
 
 int SetSoftwareBreakpoint(debuggee *dbgee, const char *arg) {
-        uintptr_t address = strtoull(arg, NULL, 0);
+        uintptr_t address = 0;
+        if (!parse_breakpoint_argument(dbgee, arg, &address)) {
+                return EXIT_FAILURE;
+        }
+
         if (address == 0) {
                 (void)(fprintf(stderr, "Invalid address: %s\n", arg));
                 return EXIT_FAILURE;
@@ -281,7 +295,11 @@ int SetSoftwareBreakpoint(debuggee *dbgee, const char *arg) {
 }
 
 int SetHardwareBreakpoint(debuggee *dbgee, const char *arg) {
-        uintptr_t address = strtoull(arg, NULL, 0);
+        uintptr_t address = 0;
+        if (!parse_breakpoint_argument(dbgee, arg, &address)) {
+                return EXIT_FAILURE;
+        }
+
         if (address == 0) {
                 (void)(fprintf(stderr, "Invalid address: %s\n", arg));
                 return EXIT_FAILURE;
@@ -688,6 +706,76 @@ int StepOut(debuggee *dbgee) {
         return EXIT_SUCCESS;
 }
 
+bool parse_breakpoint_argument(debuggee *dbgee, const char *arg,
+                               uintptr_t *address_out) {
+        if (arg == NULL || address_out == NULL) {
+                (void)(fprintf(
+                    stderr,
+                    "Invalid arguments to parse_breakpoint_argument.\n"));
+                return false;
+        }
+
+        if (arg[0] == '*') {
+                unsigned long rip;
+                unsigned long base_address;
+                char module_name[MODULE_NAME_SIZE] = {0};
+
+                char *endptr;
+                uintptr_t offset = strtoull(arg + 1, &endptr, 0);
+                if (*endptr != '\0') {
+                        (void)(fprintf(stderr, "Invalid offset format: %s\n",
+                                       arg + 1));
+                        return false;
+                }
+
+                if (read_rip(dbgee, &rip) != 0) {
+                        (void)(fprintf(stderr,
+                                       "Failed to retrieve current RIP.\n"));
+                        return false;
+                }
+
+                base_address = get_module_base_address(
+                    dbgee->pid, rip, module_name, sizeof(module_name));
+                if (base_address == 0) {
+                        (void)(fprintf(stderr,
+                                       "Failed to retrieve base address for "
+                                       "offset calculation.\n"));
+                        return false;
+                }
+
+                *address_out = base_address + offset;
+        } else if (arg[0] == '&') {
+                unsigned long func_offset = get_symbol_offset(dbgee, arg + 1);
+                if (func_offset == 0) {
+                        (void)(fprintf(stderr,
+                                       "Failed to get func symbol offset.\n"));
+                        return false;
+                }
+
+                unsigned long base_address = get_load_base(dbgee);
+                if (base_address == 0) {
+                        (void)(fprintf(stderr,
+                                       "Failed to get base address.\n"));
+                        return false;
+                }
+
+                *address_out = base_address + func_offset;
+        } else {
+                char *endptr;
+
+                uintptr_t address = strtoull(arg, &endptr, 0);
+                if (*endptr != '\0') {
+                        (void)(fprintf(stderr, "Invalid address format: %s\n",
+                                       arg));
+                        return false;
+                }
+
+                *address_out = address;
+        }
+
+        return true;
+}
+
 int configure_dr7(pid_t pid, int bpno, int condition, int length, bool enable) {
         unsigned long dr7;
 
@@ -1049,7 +1137,8 @@ unsigned long get_load_base(debuggee *dbgee) {
         return base_address;
 }
 
-unsigned long get_main_symbol_offset(debuggee *dbgee) {
+unsigned long get_symbol_offset(debuggee *dbgee, // NOLINT
+                                const char *symbol_name) {
         int fd = open(dbgee->name, O_RDONLY);
         if (fd < 0) {
                 perror("open ELF file");
@@ -1170,7 +1259,7 @@ unsigned long get_main_symbol_offset(debuggee *dbgee) {
                         for (size_t j = 0; j < num_symbols; j++) {
                                 const char *sym_name =
                                     strtab + symtab[j].st_name;
-                                if (strcmp(sym_name, "main") == 0) {
+                                if (strcmp(sym_name, symbol_name) == 0) {
                                         main_offset = symtab[j].st_value;
                                         free(strtab);
                                         free(symtab);
@@ -1196,7 +1285,7 @@ cleanup:
 }
 
 unsigned long get_main_absolute_address(debuggee *dbgee) {
-        unsigned long main_offset = get_main_symbol_offset(dbgee);
+        unsigned long main_offset = get_symbol_offset(dbgee, "main");
         if (main_offset == 0) {
                 (void)(fprintf(stderr,
                                "Failed to get 'main' symbol offset.\n"));

@@ -56,7 +56,8 @@ void completion(const char *buf, linenoiseCompletions *lc) {
         }
 }
 
-int handle_user_input(debugger *dbg, command_t cmd_type, const char *arg) {
+int handle_user_input(debugger *dbg, command_t cmd_type, // NOLINT
+                      const char *arg) {
         switch (cmd_type) {
         case UNKNOWN:
                 printf("Unknown command.\n");
