@@ -15,4 +15,9 @@ FROM mcr.microsoft.com/devcontainers/cpp:1-ubuntu-24.04
 
 # [Optional] Uncomment this section to install additional packages.
 RUN apt-get update && apt-get upgrade -y && export DEBIAN_FRONTEND=noninteractive \
-    && apt-get -y install --no-install-recommends neovim libcriterion-dev libcapstone-dev clang-format-18
+    && apt-get -y install --no-install-recommends \
+    neovim \
+    # Dependencies
+    libcriterion-dev libcapstone-dev \
+    # Build tools
+    clang-format-18 clang-tidy-18
