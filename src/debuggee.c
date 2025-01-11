@@ -91,8 +91,9 @@ void Help(void) {
         printf("General Commands:\n");
         printf("---------------------------------------------------------------"
                "\n");
-        printf("  help                - Display this help message\n");
-        printf("  exit                - Exit the debugger\n");
+        printf("  help            - Display this help message\n");
+        printf("  exit            - Exit the debugger\n");
+        printf("  clear           - Clear the screen\n");
         printf("---------------------------------------------------------------"
                "\n");
 
@@ -605,8 +606,8 @@ int Disassemble(debuggee *dbgee) {
                         unsigned long insn_offset =
                             insn[i].address - base_address;
                         printf("0x%016lx (0x%lx): %-10s\t%s\n",
-                               insn[i].address, // Absolute address
-                               insn_offset,     // Offset from base
+                               insn[i].address,
+                               insn_offset,
                                insn[i].mnemonic, insn[i].op_str);
 
                         if (strcmp(insn[i].mnemonic, "ret") == 0) {
