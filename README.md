@@ -2,10 +2,15 @@
 
 ## Build
 
-```
-cmake -B build
-cmake --build build --clean-first
-```
+1. Clone Repository
+   ```bash
+   git clone --recurse-submodules https://github.com/JavaHammes/Z.git
+   ```
+2. Build using cmake
+   ```bash
+   cmake -B build
+   cmake --build build --clean-first
+   ```
 
 ## Execute
 

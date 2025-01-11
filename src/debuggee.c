@@ -81,6 +81,7 @@ void Help(void) {
                "\n");
         printf("  help            - Display this help message\n");
         printf("  exit            - Exit the debugger\n");
+        printf("  clear           - Clear the screen\n");
         printf("---------------------------------------------------------------"
                "\n");
 
@@ -604,43 +605,47 @@ int StepOver(debuggee *dbgee) {
 }
 
 int StepOut(debuggee *dbgee) {
-    unsigned long return_addr;
-    struct user_regs_struct regs;
+        unsigned long return_addr;
+        struct user_regs_struct regs;
 
-    if (ptrace(PTRACE_GETREGS, dbgee->pid, NULL, &regs) == -1) {
-        perror("ptrace GETREGS");
-        return EXIT_FAILURE;
-    }
-
-    if (regs.rbp != 0) {
-        errno = 0;
-        return_addr = ptrace(PTRACE_PEEKDATA, dbgee->pid, regs.rbp + BYTE_LENGTH, NULL);
-        if (return_addr == (unsigned long)-1 && errno != 0) {
-            perror("ptrace PEEKDATA [rbp + 8]");
-            return EXIT_FAILURE;
+        if (ptrace(PTRACE_GETREGS, dbgee->pid, NULL, &regs) == -1) {
+                perror("ptrace GETREGS");
+                return EXIT_FAILURE;
         }
-    } else {
-        errno = 0;
-        return_addr = ptrace(PTRACE_PEEKDATA, dbgee->pid, regs.rsp, NULL);
-        if (return_addr == (unsigned long)-1 && errno != 0) {
-            perror("ptrace PEEKDATA [rsp]");
-            return EXIT_FAILURE;
+
+        if (regs.rbp != 0) {
+                errno = 0;
+                return_addr = ptrace(PTRACE_PEEKDATA, dbgee->pid,
+                                     regs.rbp + BYTE_LENGTH, NULL);
+                if (return_addr == (unsigned long)-1 && errno != 0) {
+                        perror("ptrace PEEKDATA [rbp + 8]");
+                        return EXIT_FAILURE;
+                }
+        } else {
+                errno = 0;
+                return_addr =
+                    ptrace(PTRACE_PEEKDATA, dbgee->pid, regs.rsp, NULL);
+                if (return_addr == (unsigned long)-1 && errno != 0) {
+                        perror("ptrace PEEKDATA [rsp]");
+                        return EXIT_FAILURE;
+                }
         }
-    }
 
-    if (set_temp_sw_breakpoint(dbgee, return_addr) != EXIT_SUCCESS) {
-        (void)(fprintf(stderr, "Failed to set temporary breakpoint for StepOut.\n"));
-        return EXIT_FAILURE;
-    }
+        if (set_temp_sw_breakpoint(dbgee, return_addr) != EXIT_SUCCESS) {
+                (void)(fprintf(
+                    stderr,
+                    "Failed to set temporary breakpoint for StepOut.\n"));
+                return EXIT_FAILURE;
+        }
 
-    if (ptrace(PTRACE_CONT, dbgee->pid, NULL, NULL) == -1) {
-        perror("ptrace CONT");
-        return EXIT_FAILURE;
-    }
+        if (ptrace(PTRACE_CONT, dbgee->pid, NULL, NULL) == -1) {
+                perror("ptrace CONT");
+                return EXIT_FAILURE;
+        }
 
-    dbgee->state = RUNNING;
+        dbgee->state = RUNNING;
 
-    return EXIT_SUCCESS;
+        return EXIT_SUCCESS;
 }
 
 int configure_dr7(pid_t pid, int bpno, int condition, int length, bool enable) {
