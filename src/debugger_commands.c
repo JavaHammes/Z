@@ -63,11 +63,24 @@ int handle_user_input(debugger *dbg, command_t cmd_type, // NOLINT
                 printf("Unknown command.\n");
                 return PROMPT_USER_AGAIN;
 
-        case CLI_EXIT:
-                free_debugger(dbg);
-                printf("Exiting debugger.\n");
-                exit(EXIT_SUCCESS);
-                return DONT_PROMPT_USER_AGAIN;
+        case CLI_EXIT: {
+                char *confirm =
+                    linenoise("Are you sure you want to exit? (y/n): ");
+                if (confirm != NULL) {
+                        if (confirm[0] == 'y' || confirm[0] == 'Y') {
+                                free_debugger(dbg);
+                                printf("Exiting debugger.\n");
+                                free(confirm);
+                                exit(EXIT_SUCCESS);
+                        } else {
+                                printf("Exit canceled.\n");
+                        }
+                        free(confirm);
+                } else {
+                        printf("\nExit canceled (no confirmation received).\n");
+                }
+                return PROMPT_USER_AGAIN;
+        }
 
         case CLI_HELP:
                 Help();

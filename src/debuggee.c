@@ -605,10 +605,8 @@ int Disassemble(debuggee *dbgee) {
                 for (size_t i = 0; i < count; i++) {
                         unsigned long insn_offset =
                             insn[i].address - base_address;
-                        printf("0x%016lx (0x%lx): %-10s\t%s\n",
-                               insn[i].address,
-                               insn_offset,
-                               insn[i].mnemonic, insn[i].op_str);
+                        printf("0x%016lx (0x%lx): %-10s\t%s\n", insn[i].address,
+                               insn_offset, insn[i].mnemonic, insn[i].op_str);
 
                         if (strcmp(insn[i].mnemonic, "ret") == 0) {
                                 break;
@@ -811,7 +809,6 @@ int get_return_address(debuggee *dbgee, unsigned long *ret_addr_out) {
         *ret_addr_out = return_address;
         return 0;
 }
-
 
 int set_debug_register(pid_t pid, unsigned long offset, unsigned long value) {
         if (ptrace(PTRACE_POKEUSER, pid, offset, value) == -1) {
