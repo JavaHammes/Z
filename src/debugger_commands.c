@@ -12,6 +12,7 @@
 static const command_mapping command_map[] = {
     {"help", CLI_HELP},
     {"exit", CLI_EXIT},
+    {"clear", CLI_CLEAR},
     {"run", DBG_RUN},
     {"con", DBG_CONTINUE},
     {"regs", DBG_REGISTERS},
@@ -24,7 +25,8 @@ static const command_mapping command_map[] = {
     {"step", DBG_STEP},
     {"over", DBG_STEP_OVER},
     {"out", DBG_STEP_OUT},
-    {"clear", CLI_CLEAR},
+    {"globs", DBG_GLOB_VARS},
+    {"funcs", DBG_FUNC_NAMES},
 };
 
 enum {
@@ -59,10 +61,6 @@ void completion(const char *buf, linenoiseCompletions *lc) {
 int handle_user_input(debugger *dbg, command_t cmd_type, // NOLINT
                       const char *arg) {
         switch (cmd_type) {
-        case UNKNOWN:
-                printf("Unknown command.\n");
-                return PROMPT_USER_AGAIN;
-
         case CLI_EXIT: {
                 char *confirm =
                     linenoise("Are you sure you want to exit? (y/n): ");
@@ -84,6 +82,10 @@ int handle_user_input(debugger *dbg, command_t cmd_type, // NOLINT
 
         case CLI_HELP:
                 Help();
+                return PROMPT_USER_AGAIN;
+
+        case CLI_CLEAR:
+                linenoiseClearScreen();
                 return PROMPT_USER_AGAIN;
 
         case DBG_RUN:
@@ -175,8 +177,20 @@ int handle_user_input(debugger *dbg, command_t cmd_type, // NOLINT
                 }
                 return DONT_PROMPT_USER_AGAIN;
 
-        case CLI_CLEAR:
-                linenoiseClearScreen();
+        case DBG_GLOB_VARS:
+                if (DisplayGlobalVariables(&dbg->dbgee) != 0) {
+                        printf("Failed to display global variables.\n");
+                }
+                return PROMPT_USER_AGAIN;
+
+        case DBG_FUNC_NAMES:
+                if (DisplayFunctionNames(&dbg->dbgee) != 0) {
+                        printf("Failed to display function names.\n");
+                }
+                return PROMPT_USER_AGAIN;
+
+        case UNKNOWN:
+                printf("Unknown command.\n");
                 return PROMPT_USER_AGAIN;
 
         default:
@@ -185,8 +199,11 @@ int handle_user_input(debugger *dbg, command_t cmd_type, // NOLINT
         }
 }
 
-int read_and_handle_user_command(debugger *dbg) {
+int read_and_handle_user_command(debugger *dbg) { // NOLINT
         char *input = NULL;
+
+        char *last_command = NULL;
+        char *last_arg = NULL;
 
         linenoiseHistorySetMaxLen(LINENOISE_MAX_HISTORY_LENGTH);
         linenoiseSetCompletionCallback(completion);
@@ -202,6 +219,16 @@ int read_and_handle_user_command(debugger *dbg) {
                         exit(EXIT_FAILURE);
                 }
 
+                if (input[0] == '\0') {
+                        if (last_command != NULL) {
+                                command_t cmd_type =
+                                    get_command_type(last_command);
+                                handle_user_input(dbg, cmd_type, last_arg);
+                        }
+                        free(input);
+                        continue;
+                }
+
                 linenoiseHistoryAdd(input);
 
                 input[strcspn(input, "\n")] = '\0';
@@ -209,16 +236,53 @@ int read_and_handle_user_command(debugger *dbg) {
                 char *command = strtok(input, " ");
                 char *arg = strtok(NULL, " ");
 
+                if (command != NULL) {
+                        free(last_command);
+                        if (last_arg != NULL) {
+                            free(last_arg);
+                            last_arg = NULL;
+                        }
+
+                        last_command = strdup(command);
+                        if (last_command == NULL) {
+                                (void)(fprintf(stderr, "Memory allocation failed for "
+                                                "last_command.\n"));
+                                free(input);
+                                continue;
+                        }
+
+                        if (arg != NULL) {
+                                last_arg = strdup(arg);
+                                if (last_arg == NULL) {
+                                        (void)(fprintf(stderr,
+                                                "Memory allocation failed for "
+                                                "last_arg.\n"));
+                                        free(last_command);
+                                        last_command = NULL;
+                                        free(input);
+                                        continue;
+                                }
+                        } else {
+                                last_arg = NULL;
+                        }
+                }
+
                 command_t cmd_type = UNKNOWN;
                 if (command != NULL) {
                         cmd_type = get_command_type(command);
                 }
 
-                if (handle_user_input(dbg, cmd_type, arg) == EXIT_SUCCESS) {
-                        break;
+                int handle_result = handle_user_input(dbg, cmd_type, arg);
+
+                free(input);
+                input = NULL;
+
+                if (handle_result == DONT_PROMPT_USER_AGAIN) {
+                        continue;
                 }
         }
 
-        free(input);
+        free(last_command);
+        free(last_arg);
         return EXIT_SUCCESS;
 }

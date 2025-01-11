@@ -4,8 +4,9 @@
 #include "linenoise.h"
 
 typedef enum {
-        CLI_EXIT,
         CLI_HELP,
+        CLI_EXIT,
+        CLI_CLEAR,
         DBG_RUN,
         DBG_CONTINUE,
         DBG_REGISTERS,
@@ -18,7 +19,8 @@ typedef enum {
         DBG_STEP,
         DBG_STEP_OVER,
         DBG_STEP_OUT,
-        CLI_CLEAR,
+        DBG_GLOB_VARS,
+        DBG_FUNC_NAMES,
         UNKNOWN
 } command_t;
 

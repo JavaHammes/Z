@@ -5,6 +5,7 @@
 #include <sys/types.h>
 
 #include "breakpoint_handler.h"
+#include "symtab.h"
 
 typedef enum {
         IDLE = 0,
@@ -28,6 +29,8 @@ int Continue(debuggee *dbgee);
 int Registers(debuggee *dbgee);
 int Dump(debuggee *dbgee);
 int Disassemble(debuggee *dbgee);
+int DisplayGlobalVariables(debuggee *dbgee);
+int DisplayFunctionNames(debuggee *dbgee);
 int Step(debuggee *dbgee);
 int StepOver(debuggee *dbgee);
 int StepOut(debuggee *dbgee);

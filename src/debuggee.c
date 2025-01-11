@@ -13,7 +13,6 @@
 #include <sys/ptrace.h>
 #include <sys/user.h>
 #include <sys/wait.h>
-#include <unistd.h>
 
 #include "debuggee.h"
 
@@ -697,6 +696,138 @@ int StepOut(debuggee *dbgee) {
         return EXIT_SUCCESS;
 }
 
+int DisplayGlobalVariables(debuggee *dbgee) {
+        elf_symtab symtab_struct;
+        if (!read_elf_symtab(dbgee->name, &symtab_struct)) {
+                (void)(fprintf(stderr, "Failed to read ELF symbol tables.\n"));
+                return EXIT_FAILURE;
+        }
+
+        printf("Global Variables with Values:\n");
+        printf("---------------------------------------------------------------"
+               "-----------------\n");
+        printf("%-40s %-18s %-10s %-20s\n", "Name", "Address", "Size", "Value");
+        printf("---------------------------------------------------------------"
+               "-----------------\n");
+
+        unsigned long base_address = get_load_base(dbgee);
+        if (base_address == 0) {
+                (void)(fprintf(stderr, "Failed to get base address.\n"));
+                for (size_t i = 0; i < symtab_struct.num_entries; i++) {
+                        free(symtab_struct.entries[i].symtab);
+                        free(symtab_struct.entries[i].strtab);
+                }
+                free(symtab_struct.entries);
+                return EXIT_FAILURE;
+        }
+
+        for (size_t entry_idx = 0; entry_idx < symtab_struct.num_entries;
+             entry_idx++) {
+                elf_symtab_entry *entry = &symtab_struct.entries[entry_idx];
+                for (size_t j = 0; j < entry->num_symbols; j++) {
+                        Elf64_Sym sym = entry->symtab[j];
+                        if ((ELF64_ST_TYPE(sym.st_info) != STT_OBJECT) ||
+                            (ELF64_ST_BIND(sym.st_info) != STB_GLOBAL) ||
+                            (sym.st_shndx == SHN_UNDEF)) {
+                                continue;
+                        }
+
+                        const char *sym_name = entry->strtab + sym.st_name;
+                        if (sym_name == NULL || strlen(sym_name) == 0) {
+                                continue;
+                        }
+
+                        unsigned long abs_address = base_address + sym.st_value;
+
+                        unsigned long value;
+                        errno = 0;
+                        value = ptrace(PTRACE_PEEKDATA, dbgee->pid,
+                                       (uintptr_t)abs_address, NULL);
+                        if (value == (unsigned long)-1 && errno != 0) {
+                                perror("ptrace PEEKDATA");
+                                continue;
+                        }
+
+                        printf("%-40s 0x%016lx %-10lu 0x%016lx\n", sym_name,
+                               abs_address, sym.st_size, value);
+                }
+        }
+        printf("---------------------------------------------------------------"
+               "-----------------\n");
+
+        for (size_t i = 0; i < symtab_struct.num_entries; i++) {
+                free(symtab_struct.entries[i].symtab);
+                free(symtab_struct.entries[i].strtab);
+        }
+        free(symtab_struct.entries);
+        return EXIT_SUCCESS;
+}
+
+int DisplayFunctionNames(debuggee *dbgee) {
+        if (dbgee == NULL || dbgee->name == NULL) {
+                (void)(fprintf(stderr, "Invalid debuggee or debuggee name.\n"));
+                return EXIT_FAILURE;
+        }
+
+        elf_symtab symtab_struct;
+        if (!read_elf_symtab(dbgee->name, &symtab_struct)) {
+                (void)(fprintf(stderr, "Failed to read ELF symbol tables.\n"));
+                return EXIT_FAILURE;
+        }
+
+        unsigned long base_address = get_load_base(dbgee);
+        if (base_address == 0) {
+                (void)(fprintf(stderr, "Failed to get base address.\n"));
+                for (size_t i = 0; i < symtab_struct.num_entries; i++) {
+                        free(symtab_struct.entries[i].symtab);
+                        free(symtab_struct.entries[i].strtab);
+                }
+                free(symtab_struct.entries);
+                return EXIT_FAILURE;
+        }
+
+        printf("Function Names with Addresses:\n");
+        printf("---------------------------------------------------------------"
+               "-----------------\n");
+        printf("%-40s %-18s %-10s\n", "Name", "Address", "Size");
+        printf("---------------------------------------------------------------"
+               "-----------------\n");
+
+        for (size_t entry_idx = 0; entry_idx < symtab_struct.num_entries;
+             entry_idx++) {
+                elf_symtab_entry *entry = &symtab_struct.entries[entry_idx];
+                for (size_t j = 0; j < entry->num_symbols; j++) {
+                        Elf64_Sym sym = entry->symtab[j];
+
+                        if ((ELF64_ST_TYPE(sym.st_info) != STT_FUNC) ||
+                            (sym.st_shndx == SHN_UNDEF)) {
+                                continue;
+                        }
+
+                        const char *sym_name = entry->strtab + sym.st_name;
+                        if (sym_name == NULL || strlen(sym_name) == 0) {
+                                continue;
+                        }
+
+                        unsigned long abs_address = base_address + sym.st_value;
+
+                        printf("%-40s 0x%016lx %-10lu\n", sym_name, abs_address,
+                               sym.st_size);
+                }
+        }
+
+        printf("---------------------------------------------------------------"
+               "-----------------\n");
+
+        for (size_t i = 0; i < symtab_struct.num_entries; i++) {
+                free(symtab_struct.entries[i].symtab);
+                free(symtab_struct.entries[i].strtab);
+        }
+        free(symtab_struct.entries);
+
+        return EXIT_SUCCESS;
+}
+
 bool parse_breakpoint_argument(debuggee *dbgee, const char *arg,
                                uintptr_t *address_out) {
         if (arg == NULL || address_out == NULL) {
@@ -1209,150 +1340,50 @@ unsigned long get_module_base_address(pid_t pid, unsigned long rip,
         return base_address;
 }
 
-unsigned long get_symbol_offset(debuggee *dbgee, // NOLINT
-                                const char *symbol_name) {
-        int fd = open(dbgee->name, O_RDONLY);
-        if (fd < 0) {
-                perror("open ELF file");
+unsigned long get_symbol_offset(debuggee *dbgee, const char *symbol_name) {
+        if (symbol_name == NULL) {
+                (void)(fprintf(stderr, "Symbol name cannot be NULL.\n"));
                 return 0;
         }
 
-        Elf64_Ehdr ehdr;
-        if (read(fd, &ehdr, sizeof(ehdr)) != sizeof(ehdr)) {
-                perror("read ELF header");
-                close(fd);
-                return 0;
-        }
-
-        if (memcmp(ehdr.e_ident, ELFMAG, SELFMAG) != 0) {
-                (void)(fprintf(stderr, "Not a valid ELF file.\n"));
-                close(fd);
-                return 0;
-        }
-
-        if (lseek(fd, (off_t)ehdr.e_shoff, SEEK_SET) == -1) {
-                perror("lseek to section headers");
-                close(fd);
-                return 0;
-        }
-
-        Elf64_Shdr *shdrs = malloc((size_t)(ehdr.e_shentsize * ehdr.e_shnum));
-        if (!shdrs) {
-                perror("malloc for section headers");
-                close(fd);
-                return 0;
-        }
-
-        if (read(fd, shdrs, (size_t)(ehdr.e_shentsize * ehdr.e_shnum)) !=
-            (ssize_t)(ehdr.e_shentsize * ehdr.e_shnum)) {
-                perror("read section headers");
-                free(shdrs);
-                close(fd);
-                return 0;
-        }
-
-        Elf64_Shdr sh_strtab = shdrs[ehdr.e_shstrndx];
-        char *shstrtab = malloc(sh_strtab.sh_size);
-        if (!shstrtab) {
-                perror("malloc for shstrtab");
-                free(shdrs);
-                close(fd);
-                return 0;
-        }
-
-        if (lseek(fd, (off_t)sh_strtab.sh_offset, SEEK_SET) == -1) {
-                perror("lseek to shstrtab");
-                free(shstrtab);
-                free(shdrs);
-                close(fd);
-                return 0;
-        }
-
-        if (read(fd, shstrtab, sh_strtab.sh_size) !=
-            (ssize_t)sh_strtab.sh_size) {
-                perror("read shstrtab");
-                free(shstrtab);
-                free(shdrs);
-                close(fd);
+        elf_symtab symtab_struct;
+        if (!read_elf_symtab(dbgee->name, &symtab_struct)) {
+                (void)(fprintf(stderr, "Failed to read ELF symbol tables.\n"));
                 return 0;
         }
 
         unsigned long symbol_offset = 0;
-        for (int i = 0; i < ehdr.e_shnum; i++) {
-                const char *section_name = shstrtab + shdrs[i].sh_name;
-                if (strcmp(section_name, ".symtab") == 0 ||
-                    strcmp(section_name, ".dynsym") == 0) {
-                        size_t num_symbols =
-                            shdrs[i].sh_size / shdrs[i].sh_entsize;
-                        Elf64_Sym *symtab = malloc(shdrs[i].sh_size);
-                        if (!symtab) {
-                                perror("malloc for symtab");
-                                continue;
-                        }
+        bool found = false;
 
-                        if (lseek(fd, (off_t)shdrs[i].sh_offset, SEEK_SET) ==
-                            -1) {
-                                perror("lseek to symtab");
-                                free(symtab);
-                                continue;
-                        }
+        for (size_t entry_idx = 0; entry_idx < symtab_struct.num_entries;
+             entry_idx++) {
+                elf_symtab_entry *entry = &symtab_struct.entries[entry_idx];
+                for (size_t j = 0; j < entry->num_symbols; j++) {
+                        Elf64_Sym sym = entry->symtab[j];
+                        const char *sym_name = entry->strtab + sym.st_name;
 
-                        if (read(fd, symtab, shdrs[i].sh_size) !=
-                            (ssize_t)shdrs[i].sh_size) {
-                                perror("read symtab");
-                                free(symtab);
-                                continue;
+                        if (strcmp(sym_name, symbol_name) == 0) {
+                                symbol_offset = sym.st_value;
+                                found = true;
+                                break;
                         }
-
-                        Elf64_Shdr strtab_shdr = shdrs[shdrs[i].sh_link];
-                        char *strtab = malloc(strtab_shdr.sh_size);
-                        if (!strtab) {
-                                perror("malloc for strtab");
-                                free(symtab);
-                                continue;
-                        }
-
-                        if (lseek(fd, (off_t)strtab_shdr.sh_offset, SEEK_SET) ==
-                            -1) {
-                                perror("lseek to strtab");
-                                free(strtab);
-                                free(symtab);
-                                continue;
-                        }
-
-                        if (read(fd, strtab, strtab_shdr.sh_size) !=
-                            (ssize_t)strtab_shdr.sh_size) {
-                                perror("read strtab");
-                                free(strtab);
-                                free(symtab);
-                                continue;
-                        }
-
-                        for (size_t j = 0; j < num_symbols; j++) {
-                                const char *sym_name =
-                                    strtab + symtab[j].st_name;
-                                if (strcmp(sym_name, symbol_name) == 0) {
-                                        symbol_offset = symtab[j].st_value;
-                                        free(strtab);
-                                        free(symtab);
-                                        goto cleanup;
-                                }
-                        }
-
-                        free(strtab);
-                        free(symtab);
+                }
+                if (found) {
+                        break;
                 }
         }
 
-cleanup:
-        if (symbol_offset == 0) {
+        if (!found) {
                 (void)(fprintf(stderr, "'%s' symbol not found in %s.\n",
                                symbol_name, dbgee->name));
         }
 
-        free(shstrtab);
-        free(shdrs);
-        close(fd);
+        for (size_t i = 0; i < symtab_struct.num_entries; i++) {
+                free(symtab_struct.entries[i].symtab);
+                free(symtab_struct.entries[i].strtab);
+        }
+        free(symtab_struct.entries);
+
         return symbol_offset;
 }
 

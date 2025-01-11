@@ -39,6 +39,7 @@ add_library(z_lib STATIC
     ${SRC_DIR}/debugger_commands.c
     ${SRC_DIR}/debuggee.c
     ${SRC_DIR}/breakpoint_handler.c
+    ${SRC_DIR}/symtab.c
 )
 
 target_include_directories(z_lib PUBLIC
