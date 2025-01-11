@@ -4,7 +4,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/ptrace.h>
 
 #include "debuggee.h"
 #include "debugger.h"
@@ -57,7 +56,8 @@ void completion(const char *buf, linenoiseCompletions *lc) {
         }
 }
 
-int handle_user_input(debugger *dbg, command_t cmd_type, const char *arg) {
+int handle_user_input(debugger *dbg, command_t cmd_type, // NOLINT
+                      const char *arg) {
         switch (cmd_type) {
         case UNKNOWN:
                 printf("Unknown command.\n");
@@ -96,7 +96,7 @@ int handle_user_input(debugger *dbg, command_t cmd_type, const char *arg) {
         case DBG_BREAK:
                 if (arg == NULL) {
                         printf("Usage: break "
-                               "<function_name|line_number|address>\n");
+                               "<addr>|*<offset>|&<func_name>\n");
                         return PROMPT_USER_AGAIN;
                 }
                 if (SetSoftwareBreakpoint(&dbg->dbgee, arg) != 0) {
@@ -108,7 +108,7 @@ int handle_user_input(debugger *dbg, command_t cmd_type, const char *arg) {
         case DBG_HBREAK:
                 if (arg == NULL) {
                         printf("Usage: hbreak "
-                               "<function_name|line_number|address>\n");
+                               "<addr>|*<offset>|&<func_name>\n");
                         return PROMPT_USER_AGAIN;
                 }
                 if (SetHardwareBreakpoint(&dbg->dbgee, arg) != 0) {

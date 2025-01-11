@@ -1,6 +1,9 @@
 #include <capstone/capstone.h>
+#include <capstone/x86.h>
 #include <ctype.h>
+#include <elf.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <signal.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -10,6 +13,7 @@
 #include <sys/ptrace.h>
 #include <sys/user.h>
 #include <sys/wait.h>
+#include <unistd.h>
 
 #include "debuggee.h"
 
@@ -38,7 +42,15 @@ enum {
         INT3_OPCODE = 0xCC,
         MAX_X86_INSTRUCT_LEN = 15,
         NEXT_INSTRUCTION_OFFSET = 5,
+        MODULE_NAME_SIZE = 256,
+        LINE_BUFFER_SIZE = 512,
+        HEX_BASE = 16,
+        PERMS_SIZE = 5,
+        DEV_SIZE = 6,
+        PATHNAME_SIZE = 256,
+        NUM_ITEMS_THRESHOLD = 7,
 };
+
 static inline unsigned long DR7_ENABLE_LOCAL(int bpno) {
         return 0x1UL << (bpno * 2);
 }
@@ -88,33 +100,43 @@ void Help(void) {
         printf("Execution Commands:\n");
         printf("---------------------------------------------------------------"
                "\n");
-        printf("  run             - Run the debuggee program\n");
-        printf("  con             - Continue execution of the debuggee\n");
-        printf("  step            - Execute the next instruction (single "
+        printf("  run                 - Run the debuggee program\n");
+        printf("  con                 - Continue execution of the debuggee\n");
+        printf("  step                - Execute the next instruction (single "
                "step)\n");
-        printf("  over            - Step over the current instruction\n");
-        printf("  out             - Step out of the current function\n");
+        printf("  over                - Step over the current instruction\n");
+        printf("  out                 - Step out of the current function\n");
         printf("---------------------------------------------------------------"
                "\n");
 
         printf("Breakpoint Commands:\n");
         printf("---------------------------------------------------------------"
                "\n");
-        printf("  points          - List all breakpoints\n");
-        printf("  break <addr>    - Set a software breakpoint at <addr>\n");
-        printf("  hbreak <addr>   - Set a hardware breakpoint at <addr>\n");
-        printf("  remove <idx>    - Remove the breakpoint at index <idx>\n");
+        printf("  points              - List all breakpoints\n");
+        printf("  break <addr>        - Set a software breakpoint at <addr>\n");
+        printf("  hbreak <addr>       - Set a hardware breakpoint at <addr>\n");
+        printf("  break *<offset>     - Set a software breakpoint at "
+               "base_address + <offset>\n");
+        printf("  hbreak *<offset>    - Set a hardware breakpoint at "
+               "base_address + <offset>\n");
+        printf("  break &<func_name>  - Set a software breakpoint at the "
+               "address of function <func_name>\n");
+        printf("  hbreak &<func_name> - Set a hardware breakpoint at the "
+               "address of function <func_name>\n");
+        printf(
+            "  remove <idx>        - Remove the breakpoint at index <idx>\n");
         printf("---------------------------------------------------------------"
                "\n");
 
         printf("Inspection Commands:\n");
         printf("---------------------------------------------------------------"
                "\n");
-        printf("  regs            - Display CPU registers (general-purpose and "
+        printf("  regs                - Display CPU registers (general-purpose "
+               "and "
                "debug)\n");
-        printf("  dump            - Dump memory at the current instruction "
+        printf("  dump                - Dump memory at the current instruction "
                "pointer\n");
-        printf("  dis             - Disassemble memory at the current "
+        printf("  dis                 - Disassemble memory at the current "
                "instruction pointer\n");
         printf("==============================================================="
                "\n");
@@ -246,7 +268,11 @@ int Registers(debuggee *dbgee) {
 }
 
 int SetSoftwareBreakpoint(debuggee *dbgee, const char *arg) {
-        uintptr_t address = strtoull(arg, NULL, 0);
+        uintptr_t address = 0;
+        if (!parse_breakpoint_argument(dbgee, arg, &address)) {
+                return EXIT_FAILURE;
+        }
+
         if (address == 0) {
                 (void)(fprintf(stderr, "Invalid address: %s\n", arg));
                 return EXIT_FAILURE;
@@ -259,7 +285,13 @@ int SetSoftwareBreakpoint(debuggee *dbgee, const char *arg) {
                 return EXIT_FAILURE;
         }
 
-        uint64_t original_byte = set_sw_breakpoint(dbgee->pid, address);
+        uint64_t original_byte;
+        if (!set_sw_breakpoint(dbgee->pid, address, &original_byte)) {
+                (void)(fprintf(stderr,
+                               "Failed to set software breakpoint at 0x%lx.\n",
+                               address));
+                return EXIT_FAILURE;
+        }
 
         size_t bp_index =
             add_software_breakpoint(dbgee->bp_handler, address, original_byte);
@@ -270,7 +302,11 @@ int SetSoftwareBreakpoint(debuggee *dbgee, const char *arg) {
 }
 
 int SetHardwareBreakpoint(debuggee *dbgee, const char *arg) {
-        uintptr_t address = strtoull(arg, NULL, 0);
+        uintptr_t address = 0;
+        if (!parse_breakpoint_argument(dbgee, arg, &address)) {
+                return EXIT_FAILURE;
+        }
+
         if (address == 0) {
                 (void)(fprintf(stderr, "Invalid address: %s\n", arg));
                 return EXIT_FAILURE;
@@ -459,10 +495,19 @@ void ListBreakpoints(debuggee *dbgee) { list_breakpoints(dbgee->bp_handler); }
 int Dump(debuggee *dbgee) {
         unsigned long rip;
         unsigned char buf[DUMP_SIZE];
+        unsigned long base_address;
+        char module_name[MODULE_NAME_SIZE] = {0};
 
         if (read_rip(dbgee, &rip) != 0) {
                 (void)(fprintf(stderr, "Failed to retrieve current RIP.\n"));
                 return -1;
+        }
+
+        base_address = get_module_base_address(dbgee->pid, rip, module_name,
+                                               sizeof(module_name));
+        if (base_address == 0) {
+                (void)(fprintf(stderr, "Failed to retrieve base address.\n"));
+                return EXIT_FAILURE;
         }
 
         if (read_memory(dbgee->pid, rip, buf, sizeof(buf)) != 0) {
@@ -471,7 +516,9 @@ int Dump(debuggee *dbgee) {
                 return EXIT_FAILURE;
         }
 
-        printf("Memory dump at 0x%016lx:\n", rip);
+        printf("Memory dump in module '%s' at RIP: 0x%016lx (Offset: 0x%lx)\n",
+               module_name, rip, rip - base_address);
+
         printf("---------------------------------------------------------------"
                "----------------------\n");
         printf("Offset              Hexadecimal                                "
@@ -480,7 +527,9 @@ int Dump(debuggee *dbgee) {
                "----------------------\n");
 
         for (size_t i = 0; i < sizeof(buf); i += WORD_LENGTH) {
-                printf("0x%016lx: ", rip + i);
+                unsigned long current_address = rip + i;
+                unsigned long offset = current_address - base_address;
+                printf("0x%016lx (0x%lx): ", current_address, offset);
 
                 for (size_t j = 0; j < WORD_LENGTH; ++j) {
                         if (i + j < sizeof(buf)) {
@@ -516,9 +565,18 @@ int Disassemble(debuggee *dbgee) {
         csh handle;
         cs_insn *insn;
         size_t count;
+        unsigned long base_address;
+        char module_name[MODULE_NAME_SIZE] = {0};
 
         if (read_rip(dbgee, &rip) != 0) {
                 (void)(fprintf(stderr, "Failed to retrieve current RIP.\n"));
+                return EXIT_FAILURE;
+        }
+
+        base_address = get_module_base_address(dbgee->pid, rip, module_name,
+                                               sizeof(module_name));
+        if (base_address == 0) {
+                (void)(fprintf(stderr, "Failed to retrieve base address.\n"));
                 return EXIT_FAILURE;
         }
 
@@ -535,16 +593,26 @@ int Disassemble(debuggee *dbgee) {
 
         cs_option(handle, CS_OPT_SYNTAX, CS_OPT_SYNTAX_INTEL);
 
-        printf("Disassembling memory at current RIP: 0x%016lx\n", rip);
+        unsigned long offset = rip - base_address;
+        printf("Disassembling memory in module '%s' at RIP: 0x%016lx (Offset: "
+               "0x%lx)\n",
+               module_name, rip, offset);
 
         count = cs_disasm(handle, buf, sizeof(buf), rip, 0, &insn);
         if (count > 0) {
                 printf("-------------------------------------------------------"
                        "------------------------------\n");
                 for (size_t i = 0; i < count; i++) {
-                        printf("0x%016llx: %-10s\t%s\n",
-                               (unsigned long long)insn[i].address,
+                        unsigned long insn_offset =
+                            insn[i].address - base_address;
+                        printf("0x%016lx (0x%lx): %-10s\t%s\n",
+                               insn[i].address,
+                               insn_offset,
                                insn[i].mnemonic, insn[i].op_str);
+
+                        if (strcmp(insn[i].mnemonic, "ret") == 0) {
+                                break;
+                        }
                 }
 
                 printf("-------------------------------------------------------"
@@ -578,10 +646,10 @@ int StepOver(debuggee *dbgee) {
 
         bool is_call = is_call_instruction(dbgee, rip);
         if (is_call) {
+
                 // Set temporary breakpoint at the instruction after the call
                 // instruction. On x86_64 we know that we need to add 5. 1 byte
                 // for oppcode and 4 for the relative offset.
-
                 unsigned long return_addr = rip + NEXT_INSTRUCTION_OFFSET;
 
                 if (set_temp_sw_breakpoint(dbgee, return_addr) !=
@@ -591,7 +659,6 @@ int StepOver(debuggee *dbgee) {
                         return EXIT_FAILURE;
                 }
 
-                // Continue to that instruction
                 if (ptrace(PTRACE_CONT, dbgee->pid, NULL, NULL) == -1) {
                         perror("ptrace CONT");
                         return EXIT_FAILURE;
@@ -605,36 +672,21 @@ int StepOver(debuggee *dbgee) {
 }
 
 int StepOut(debuggee *dbgee) {
-        unsigned long return_addr;
-        struct user_regs_struct regs;
+        unsigned long return_address;
 
-        if (ptrace(PTRACE_GETREGS, dbgee->pid, NULL, &regs) == -1) {
-                perror("ptrace GETREGS");
+        if (get_return_address(dbgee, &return_address) != 0) {
+                (void)fprintf(
+                    stderr, "Failed to retrieve return address for StepOut.\n");
                 return EXIT_FAILURE;
         }
 
-        if (regs.rbp != 0) {
-                errno = 0;
-                return_addr = ptrace(PTRACE_PEEKDATA, dbgee->pid,
-                                     regs.rbp + BYTE_LENGTH, NULL);
-                if (return_addr == (unsigned long)-1 && errno != 0) {
-                        perror("ptrace PEEKDATA [rbp + 8]");
-                        return EXIT_FAILURE;
-                }
-        } else {
-                errno = 0;
-                return_addr =
-                    ptrace(PTRACE_PEEKDATA, dbgee->pid, regs.rsp, NULL);
-                if (return_addr == (unsigned long)-1 && errno != 0) {
-                        perror("ptrace PEEKDATA [rsp]");
-                        return EXIT_FAILURE;
-                }
-        }
+        printf("Return address found at 0x%lx\n", return_address);
 
-        if (set_temp_sw_breakpoint(dbgee, return_addr) != EXIT_SUCCESS) {
-                (void)(fprintf(
-                    stderr,
-                    "Failed to set temporary breakpoint for StepOut.\n"));
+        if (set_temp_sw_breakpoint(dbgee, return_address) != EXIT_SUCCESS) {
+                (void)fprintf(stderr,
+                              "Failed to set temporary breakpoint at return "
+                              "address 0x%lx.\n",
+                              return_address);
                 return EXIT_FAILURE;
         }
 
@@ -642,10 +694,79 @@ int StepOut(debuggee *dbgee) {
                 perror("ptrace CONT");
                 return EXIT_FAILURE;
         }
-
         dbgee->state = RUNNING;
 
         return EXIT_SUCCESS;
+}
+
+bool parse_breakpoint_argument(debuggee *dbgee, const char *arg,
+                               uintptr_t *address_out) {
+        if (arg == NULL || address_out == NULL) {
+                (void)(fprintf(
+                    stderr,
+                    "Invalid arguments to parse_breakpoint_argument.\n"));
+                return false;
+        }
+
+        if (arg[0] == '*') {
+                unsigned long rip;
+                unsigned long base_address;
+                char module_name[MODULE_NAME_SIZE] = {0};
+
+                char *endptr;
+                uintptr_t offset = strtoull(arg + 1, &endptr, 0);
+                if (*endptr != '\0') {
+                        (void)(fprintf(stderr, "Invalid offset format: %s\n",
+                                       arg + 1));
+                        return false;
+                }
+
+                if (read_rip(dbgee, &rip) != 0) {
+                        (void)(fprintf(stderr,
+                                       "Failed to retrieve current RIP.\n"));
+                        return false;
+                }
+
+                base_address = get_module_base_address(
+                    dbgee->pid, rip, module_name, sizeof(module_name));
+                if (base_address == 0) {
+                        (void)(fprintf(stderr,
+                                       "Failed to retrieve base address for "
+                                       "offset calculation.\n"));
+                        return false;
+                }
+
+                *address_out = base_address + offset;
+        } else if (arg[0] == '&') {
+                unsigned long func_offset = get_symbol_offset(dbgee, arg + 1);
+                if (func_offset == 0) {
+                        (void)(fprintf(stderr,
+                                       "Failed to get func symbol offset.\n"));
+                        return false;
+                }
+
+                unsigned long base_address = get_load_base(dbgee);
+                if (base_address == 0) {
+                        (void)(fprintf(stderr,
+                                       "Failed to get base address.\n"));
+                        return false;
+                }
+
+                *address_out = base_address + func_offset;
+        } else {
+                char *endptr;
+
+                uintptr_t address = strtoull(arg, &endptr, 0);
+                if (*endptr != '\0') {
+                        (void)(fprintf(stderr, "Invalid address format: %s\n",
+                                       arg));
+                        return false;
+                }
+
+                *address_out = address;
+        }
+
+        return true;
 }
 
 int configure_dr7(pid_t pid, int bpno, int condition, int length, bool enable) {
@@ -666,6 +787,31 @@ int configure_dr7(pid_t pid, int bpno, int condition, int length, bool enable) {
 
         return set_debug_register(pid, DR7_OFFSET, dr7);
 }
+
+int get_return_address(debuggee *dbgee, unsigned long *ret_addr_out) {
+        struct user_regs_struct regs;
+        unsigned long rsp;
+        errno = 0;
+
+        if (ptrace(PTRACE_GETREGS, dbgee->pid, NULL, &regs) == -1) {
+                perror("ptrace GETREGS");
+                return -1;
+        }
+
+        rsp = regs.rsp;
+
+        errno = 0;
+        unsigned long return_address =
+            ptrace(PTRACE_PEEKDATA, dbgee->pid, rsp, NULL);
+        if (return_address == (unsigned long)-1 && errno != 0) {
+                perror("ptrace PEEKDATA for return address");
+                return -1;
+        }
+
+        *ret_addr_out = return_address;
+        return 0;
+}
+
 
 int set_debug_register(pid_t pid, unsigned long offset, unsigned long value) {
         if (ptrace(PTRACE_POKEUSER, pid, offset, value) == -1) {
@@ -715,27 +861,27 @@ int read_rip(debuggee *dbgee, unsigned long *rip) {
         return EXIT_SUCCESS;
 }
 
-uint64_t set_sw_breakpoint(pid_t pid, uint64_t addr) {
+bool set_sw_breakpoint(pid_t pid, uint64_t addr, uint64_t *code_at_addr) {
         errno = 0;
         uint64_t int3 = INT3_OPCODE;
-        uint64_t code_at_addr = ptrace(PTRACE_PEEKDATA, pid, addr, NULL);
-        if (code_at_addr == (uint64_t)-1 && errno != 0) {
+        *code_at_addr = ptrace(PTRACE_PEEKDATA, pid, addr, NULL);
+        if (*code_at_addr == (uint64_t)-1 && errno != 0) {
                 perror("Error reading data with PTRACE_PEEKDATA");
-                return (uint64_t)-1;
+                return false;
         }
-        uint64_t code_break = (code_at_addr & ~MAX_BYTE_VALUE) | int3;
+        uint64_t code_break = (*code_at_addr & ~MAX_BYTE_VALUE) | int3;
 
         if (ptrace(PTRACE_POKEDATA, pid, addr, code_break) == -1) {
                 perror("Error writing data with PTRACE_POKEDATA");
-                return (uint64_t)-1;
+                return false;
         }
 
-        return code_at_addr;
+        return true;
 }
 
 int set_temp_sw_breakpoint(debuggee *dbgee, uint64_t addr) {
-        uint64_t original_byte = set_sw_breakpoint(dbgee->pid, addr);
-        if (original_byte == (uint64_t)-1) {
+        uint64_t original_byte;
+        if (!set_sw_breakpoint(dbgee->pid, addr, &original_byte)) {
                 (void)(fprintf(stderr,
                                "Failed to set temporary breakpoint at 0x%lx.\n",
                                addr));
@@ -881,7 +1027,8 @@ int handle_software_breakpoint(debuggee *dbgee, size_t bp_index) {
                         return EXIT_FAILURE;
                 }
         } else {
-                if (set_sw_breakpoint(dbgee->pid, address) == (uint64_t)-1) {
+                uint64_t original_data;
+                if (!set_sw_breakpoint(dbgee->pid, address, &original_data)) {
                         (void)(fprintf(
                             stderr,
                             "Failed to re-insert software breakpoint while "
@@ -967,4 +1114,266 @@ bool is_call_instruction(debuggee *dbgee, unsigned long rip) {
 
         cs_close(&handle);
         return false;
+}
+
+unsigned long get_load_base(debuggee *dbgee) {
+        char maps_path[MODULE_NAME_SIZE];
+        (void)(snprintf(maps_path, sizeof(maps_path), "/proc/%d/maps",
+                        dbgee->pid));
+
+        FILE *maps = fopen(maps_path, "r");
+        if (!maps) {
+                perror("fopen maps");
+                return 0;
+        }
+
+        char line[LINE_BUFFER_SIZE];
+        unsigned long base_address = 0;
+
+        while (fgets(line, sizeof(line), maps)) {
+
+                // Each line has the format:
+                // address           perms offset  dev   inode      pathname
+                if (strstr(line, dbgee->name)) {
+                        char *dash = strchr(line, '-');
+                        if (!dash) {
+                                continue;
+                        }
+                        *dash = '\0';
+                        base_address = strtoul(line, NULL, HEX_BASE);
+                        break;
+                }
+        }
+
+        (void)(fclose(maps));
+
+        if (base_address == 0) {
+                (void)(fprintf(
+                    stderr, "Failed to find base address for %s in pid %d.\n",
+                    dbgee->name, dbgee->pid));
+        }
+
+        return base_address;
+}
+
+unsigned long get_module_base_address(pid_t pid, unsigned long rip,
+                                      char *module_name,
+                                      size_t module_name_size) {
+        char maps_path[MODULE_NAME_SIZE];
+        (void)(snprintf(maps_path, sizeof(maps_path), "/proc/%d/maps", pid));
+
+        FILE *maps = fopen(maps_path, "r");
+        if (!maps) {
+                perror("fopen maps");
+                return 0;
+        }
+
+        char line[LINE_BUFFER_SIZE];
+        unsigned long base_address = 0;
+        module_name[0] = '\0';
+
+        while (fgets(line, sizeof(line), maps)) {
+                unsigned long start;
+                unsigned long end;
+                char perms[PERMS_SIZE];
+                unsigned long offset;
+                char dev[DEV_SIZE];
+                unsigned long inode;
+                char pathname[PATHNAME_SIZE] = {0};
+
+                int num_items = sscanf( // NOLINT(cert-err34-c)
+                    line, "%lx-%lx %4s %lx %5s %lu %s", &start, &end, perms,
+                    &offset, dev, &inode, pathname);
+
+                if (rip >= start && rip < end) {
+                        base_address = start;
+                        if (num_items >= NUM_ITEMS_THRESHOLD) {
+                                strncpy(module_name, pathname,
+                                        module_name_size - 1);
+                                module_name[module_name_size - 1] = '\0';
+                        } else {
+                                strncpy(module_name, "[anonymous]",
+                                        module_name_size - 1);
+                                module_name[module_name_size - 1] = '\0';
+                        }
+                        break;
+                }
+        }
+
+        (void)(fclose(maps));
+
+        if (base_address == 0) {
+                (void)(fprintf(stderr,
+                               "Failed to find base address containing RIP "
+                               "0x%lx in pid %d.\n",
+                               rip, pid));
+        }
+
+        return base_address;
+}
+
+unsigned long get_symbol_offset(debuggee *dbgee, // NOLINT
+                                const char *symbol_name) {
+        int fd = open(dbgee->name, O_RDONLY);
+        if (fd < 0) {
+                perror("open ELF file");
+                return 0;
+        }
+
+        Elf64_Ehdr ehdr;
+        if (read(fd, &ehdr, sizeof(ehdr)) != sizeof(ehdr)) {
+                perror("read ELF header");
+                close(fd);
+                return 0;
+        }
+
+        if (memcmp(ehdr.e_ident, ELFMAG, SELFMAG) != 0) {
+                (void)(fprintf(stderr, "Not a valid ELF file.\n"));
+                close(fd);
+                return 0;
+        }
+
+        if (lseek(fd, (off_t)ehdr.e_shoff, SEEK_SET) == -1) {
+                perror("lseek to section headers");
+                close(fd);
+                return 0;
+        }
+
+        Elf64_Shdr *shdrs = malloc((size_t)(ehdr.e_shentsize * ehdr.e_shnum));
+        if (!shdrs) {
+                perror("malloc for section headers");
+                close(fd);
+                return 0;
+        }
+
+        if (read(fd, shdrs, (size_t)(ehdr.e_shentsize * ehdr.e_shnum)) !=
+            (ssize_t)(ehdr.e_shentsize * ehdr.e_shnum)) {
+                perror("read section headers");
+                free(shdrs);
+                close(fd);
+                return 0;
+        }
+
+        Elf64_Shdr sh_strtab = shdrs[ehdr.e_shstrndx];
+        char *shstrtab = malloc(sh_strtab.sh_size);
+        if (!shstrtab) {
+                perror("malloc for shstrtab");
+                free(shdrs);
+                close(fd);
+                return 0;
+        }
+
+        if (lseek(fd, (off_t)sh_strtab.sh_offset, SEEK_SET) == -1) {
+                perror("lseek to shstrtab");
+                free(shstrtab);
+                free(shdrs);
+                close(fd);
+                return 0;
+        }
+
+        if (read(fd, shstrtab, sh_strtab.sh_size) !=
+            (ssize_t)sh_strtab.sh_size) {
+                perror("read shstrtab");
+                free(shstrtab);
+                free(shdrs);
+                close(fd);
+                return 0;
+        }
+
+        unsigned long symbol_offset = 0;
+        for (int i = 0; i < ehdr.e_shnum; i++) {
+                const char *section_name = shstrtab + shdrs[i].sh_name;
+                if (strcmp(section_name, ".symtab") == 0 ||
+                    strcmp(section_name, ".dynsym") == 0) {
+                        size_t num_symbols =
+                            shdrs[i].sh_size / shdrs[i].sh_entsize;
+                        Elf64_Sym *symtab = malloc(shdrs[i].sh_size);
+                        if (!symtab) {
+                                perror("malloc for symtab");
+                                continue;
+                        }
+
+                        if (lseek(fd, (off_t)shdrs[i].sh_offset, SEEK_SET) ==
+                            -1) {
+                                perror("lseek to symtab");
+                                free(symtab);
+                                continue;
+                        }
+
+                        if (read(fd, symtab, shdrs[i].sh_size) !=
+                            (ssize_t)shdrs[i].sh_size) {
+                                perror("read symtab");
+                                free(symtab);
+                                continue;
+                        }
+
+                        Elf64_Shdr strtab_shdr = shdrs[shdrs[i].sh_link];
+                        char *strtab = malloc(strtab_shdr.sh_size);
+                        if (!strtab) {
+                                perror("malloc for strtab");
+                                free(symtab);
+                                continue;
+                        }
+
+                        if (lseek(fd, (off_t)strtab_shdr.sh_offset, SEEK_SET) ==
+                            -1) {
+                                perror("lseek to strtab");
+                                free(strtab);
+                                free(symtab);
+                                continue;
+                        }
+
+                        if (read(fd, strtab, strtab_shdr.sh_size) !=
+                            (ssize_t)strtab_shdr.sh_size) {
+                                perror("read strtab");
+                                free(strtab);
+                                free(symtab);
+                                continue;
+                        }
+
+                        for (size_t j = 0; j < num_symbols; j++) {
+                                const char *sym_name =
+                                    strtab + symtab[j].st_name;
+                                if (strcmp(sym_name, symbol_name) == 0) {
+                                        symbol_offset = symtab[j].st_value;
+                                        free(strtab);
+                                        free(symtab);
+                                        goto cleanup;
+                                }
+                        }
+
+                        free(strtab);
+                        free(symtab);
+                }
+        }
+
+cleanup:
+        if (symbol_offset == 0) {
+                (void)(fprintf(stderr, "'%s' symbol not found in %s.\n",
+                               symbol_name, dbgee->name));
+        }
+
+        free(shstrtab);
+        free(shdrs);
+        close(fd);
+        return symbol_offset;
+}
+
+unsigned long get_main_absolute_address(debuggee *dbgee) {
+        unsigned long main_offset = get_symbol_offset(dbgee, "main");
+        if (main_offset == 0) {
+                (void)(fprintf(stderr,
+                               "Failed to get 'main' symbol offset.\n"));
+                return 0;
+        }
+
+        unsigned long base_address = get_load_base(dbgee);
+        if (base_address == 0) {
+                (void)(fprintf(stderr, "Failed to get base address.\n"));
+                return 0;
+        }
+
+        unsigned long main_absolute = base_address + main_offset;
+        printf("'main' absolute address: 0x%lx\n", main_absolute);
+        return main_absolute;
 }
