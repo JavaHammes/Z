@@ -96,7 +96,7 @@ int handle_user_input(debugger *dbg, command_t cmd_type, // NOLINT
         case DBG_BREAK:
                 if (arg == NULL) {
                         printf("Usage: break "
-                               "<adr>|*<offset>|&<func_name>\n");
+                               "<addr>|*<offset>|&<func_name>\n");
                         return PROMPT_USER_AGAIN;
                 }
                 if (SetSoftwareBreakpoint(&dbg->dbgee, arg) != 0) {
@@ -108,7 +108,7 @@ int handle_user_input(debugger *dbg, command_t cmd_type, // NOLINT
         case DBG_HBREAK:
                 if (arg == NULL) {
                         printf("Usage: hbreak "
-                               "<adr>|*<offset>|&<func_name>\n");
+                               "<addr>|*<offset>|&<func_name>\n");
                         return PROMPT_USER_AGAIN;
                 }
                 if (SetHardwareBreakpoint(&dbg->dbgee, arg) != 0) {
