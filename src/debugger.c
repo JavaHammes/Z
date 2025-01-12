@@ -130,6 +130,17 @@ int trace_debuggee(debugger *dbg) { // NOLINT
                         printf("Child %d stopped by signal %d.\n", pid, sig);
                         dbg->dbgee.state = STOPPED;
 
+                        if (sig == SIGWINCH) {
+                                printf("Ignoring Signal 28.\n");
+                                if (ptrace(PTRACE_CONT, dbg->dbgee.pid, NULL,
+                                           NULL) == -1) {
+                                        perror(
+                                            "ptrace CONT to ignore Signal 28");
+                                        return EXIT_FAILURE;
+                                }
+                                continue;
+                        }
+
                         if (main_startup_breakpoint_set == false) {
                                 unsigned long main_address =
                                     get_main_absolute_address(&dbg->dbgee);

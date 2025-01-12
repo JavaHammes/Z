@@ -13,7 +13,6 @@
 #include <sys/ptrace.h>
 #include <sys/user.h>
 #include <sys/wait.h>
-#include <unistd.h>
 
 #include "debuggee.h"
 
@@ -49,6 +48,11 @@ enum {
         DEV_SIZE = 6,
         PATHNAME_SIZE = 256,
         NUM_ITEMS_THRESHOLD = 7,
+        WATCHPOINT_RW_READ_WRITE = 0x3,
+        WATCHPOINT_LEN_1_BYTE = 0x0,
+        WATCHPOINT_LEN_2_BYTES = 0x1,
+        WATCHPOINT_LEN_4_BYTES = 0x3,
+        WATCHPOINT_LEN_8_BYTES = 0x2,
 };
 
 static inline unsigned long DR7_ENABLE_LOCAL(int bpno) {
@@ -91,9 +95,9 @@ void Help(void) {
         printf("General Commands:\n");
         printf("---------------------------------------------------------------"
                "\n");
-        printf("  help            - Display this help message\n");
-        printf("  exit            - Exit the debugger\n");
-        printf("  clear           - Clear the screen\n");
+        printf("  help                - Display this help message\n");
+        printf("  exit                - Exit the debugger\n");
+        printf("  clear               - Clear the screen\n");
         printf("---------------------------------------------------------------"
                "\n");
 
@@ -106,6 +110,14 @@ void Help(void) {
                "step)\n");
         printf("  over                - Step over the current instruction\n");
         printf("  out                 - Step out of the current function\n");
+        printf("  skip <n>            - Advances instruction pointer by <n> "
+               "instructions\n");
+        printf("  jump <addr>         - Execute until <addr>\n");
+        printf("  trace <addr>        - Trace execution starting at <addr>\n");
+        printf("  trace *<offset>     - Trace execution starting at "
+               "base_address + <offset>\n");
+        printf("  trace &<func_name>  - Trace execution starting at address of "
+               "function <func_name>\n");
         printf("---------------------------------------------------------------"
                "\n");
 
@@ -114,15 +126,21 @@ void Help(void) {
                "\n");
         printf("  points              - List all breakpoints\n");
         printf("  break <addr>        - Set a software breakpoint at <addr>\n");
-        printf("  hbreak <addr>       - Set a hardware breakpoint at <addr>\n");
         printf("  break *<offset>     - Set a software breakpoint at "
-               "base_address + <offset>\n");
-        printf("  hbreak *<offset>    - Set a hardware breakpoint at "
                "base_address + <offset>\n");
         printf("  break &<func_name>  - Set a software breakpoint at the "
                "address of function <func_name>\n");
+        printf("  hbreak <addr>       - Set a hardware breakpoint at <addr>\n");
+        printf("  hbreak *<offset>    - Set a hardware breakpoint at "
+               "base_address + <offset>\n");
         printf("  hbreak &<func_name> - Set a hardware breakpoint at the "
                "address of function <func_name>\n");
+        printf("  watch <addr>        - Set a watchpoint on memory address "
+               "<addr> for read/write access\n");
+        printf("  watch *<offset>     - Set a watchpoint at base_address + "
+               "<offset> for read/write access\n");
+        printf("  watch &<var_name>   - Set a watchpoint on global variable "
+               "<var_name> for read/write access\n");
         printf(
             "  remove <idx>        - Remove the breakpoint at index <idx>\n");
         printf("---------------------------------------------------------------"
@@ -138,6 +156,9 @@ void Help(void) {
                "pointer\n");
         printf("  dis                 - Disassemble memory at the current "
                "instruction pointer\n");
+        printf("  vars                - Display global variables and their "
+               "values\n");
+        printf("  funcs               - List function names with addresses\n");
         printf("==============================================================="
                "\n");
 }
@@ -195,6 +216,167 @@ int Continue(debuggee *dbgee) {
         }
 
         dbgee->state = RUNNING;
+        return EXIT_SUCCESS;
+}
+
+int Skip(debuggee *dbgee, const char *arg) {
+        int n = (int)strtol(arg, NULL, DECIMAL_BASE_PARAMETER);
+        if (n <= 0) {
+                (void)(fprintf(stderr,
+                               "Invalid number of instructions to skip: %s\n",
+                               arg));
+                return EXIT_FAILURE;
+        }
+
+        for (int i = 0; i < n; i++) {
+                if (!step_and_wait(dbgee)) {
+                        (void)(fprintf(stderr, "Failed to single step.\n"));
+                        return EXIT_FAILURE;
+                }
+        }
+
+        printf("Skipped %d instructions.\n", n);
+        return EXIT_SUCCESS;
+}
+
+int Jump(debuggee *dbgee, const char *arg) {
+        uintptr_t address = 0;
+        if (!parse_breakpoint_argument(dbgee, arg, &address)) {
+                return EXIT_FAILURE;
+        }
+
+        if (address == 0) {
+                (void)(fprintf(stderr, "Invalid address: %s\n", arg));
+                return EXIT_FAILURE;
+        }
+
+        if (set_temp_sw_breakpoint(dbgee, address) != EXIT_SUCCESS) {
+                (void)(fprintf(stderr, "Failed to set temporary "
+                                       "breakpoint for StepOver.\n"));
+                return EXIT_FAILURE;
+        }
+
+        if (ptrace(PTRACE_CONT, dbgee->pid, NULL, NULL) == -1) {
+                perror("ptrace CONT");
+                return EXIT_FAILURE;
+        }
+        dbgee->state = RUNNING;
+
+        return EXIT_SUCCESS;
+}
+
+int Trace(debuggee *dbgee, const char *arg) { // NOLINT
+        if (Jump(dbgee, arg) != EXIT_SUCCESS) {
+                (void)(fprintf(stderr, "Failed to jump to %s.\n", arg));
+                return EXIT_FAILURE;
+        }
+
+        int wait_status;
+        if (waitpid(dbgee->pid, &wait_status, 0) == -1) {
+                perror("waitpid");
+                return EXIT_FAILURE;
+        }
+
+        if (WIFEXITED(wait_status)) {
+                printf("Debuggee exited with status %d during jump.\n",
+                       WEXITSTATUS(wait_status));
+                dbgee->state = TERMINATED;
+                return EXIT_FAILURE;
+        }
+
+        if (WIFSIGNALED(wait_status)) {
+                printf("Debuggee was killed by signal %d during jump.\n",
+                       WTERMSIG(wait_status));
+                dbgee->state = TERMINATED;
+                return EXIT_FAILURE;
+        }
+
+        if (WIFSTOPPED(wait_status)) {
+                int sig = WSTOPSIG(wait_status);
+                if (sig != SIGTRAP) {
+                        (void)(fprintf(
+                            stderr,
+                            "Received unexpected signal %d during jump.\n",
+                            sig));
+                        return EXIT_FAILURE;
+                }
+
+                size_t bp_index;
+                bool sw_bp_hit = is_software_breakpoint(dbgee, &bp_index);
+
+                if (sw_bp_hit) {
+                        if (handle_software_breakpoint(dbgee, bp_index) !=
+                            EXIT_SUCCESS) {
+                                return EXIT_FAILURE;
+                        }
+                }
+        } else {
+                (void)(fprintf(
+                    stderr,
+                    "Debuggee did not stop as expected during jump.\n"));
+                return EXIT_FAILURE;
+        }
+        dbgee->state = STOPPED;
+
+        while (1) {
+                if (!step_and_wait(dbgee)) {
+                        (void)(fprintf(stderr, "Failed to single step.\n"));
+                        return EXIT_FAILURE;
+                }
+
+                unsigned long rip;
+                if (read_rip(dbgee, &rip) != EXIT_SUCCESS) {
+                        (void)(fprintf(stderr, "Failed to read RIP.\n"));
+                        return EXIT_FAILURE;
+                }
+
+                unsigned char buf[MAX_X86_INSTRUCT_LEN];
+                if (read_memory(dbgee->pid, rip, buf, sizeof(buf)) != 0) {
+                        (void)(fprintf(
+                            stderr, "Failed to read memory at 0x%lx\n", rip));
+                        return EXIT_FAILURE;
+                }
+
+                csh handle;
+                cs_insn *insn;
+                size_t count;
+
+                if (cs_open(CS_ARCH_X86, CS_MODE_64, &handle) != CS_ERR_OK) {
+                        (void)(fprintf(stderr,
+                                       "Failed to initialize Capstone.\n"));
+                        return EXIT_FAILURE;
+                }
+
+                cs_option(handle, CS_OPT_SYNTAX, CS_OPT_SYNTAX_INTEL);
+                count = cs_disasm(handle, buf, sizeof(buf), rip, 1, &insn);
+                if (count > 0) {
+                        printf("0x%016lx: %-10s %s\n", insn[0].address,
+                               insn[0].mnemonic, insn[0].op_str);
+
+                        if (strcmp(insn[0].mnemonic, "ret") == 0 ||
+                            strcmp(insn[0].mnemonic, "hlt") == 0) {
+                                printf("Trace completed at 0x%lx\n",
+                                       insn[0].address);
+                                cs_free(insn, count);
+                                cs_close(&handle);
+                                break;
+                        }
+
+                        cs_free(insn, count);
+                } else {
+                        (void)(fprintf(
+                            stderr, "Failed to disassemble at 0x%lx\n", rip));
+                        (void)(fprintf(stderr, "Raw bytes: "));
+                        for (size_t i = 0; i < sizeof(buf); ++i) {
+                                (void)(fprintf(stderr, "%02x ", buf[i]));
+                        }
+                        (void)(fprintf(stderr, "\n"));
+                        return EXIT_FAILURE;
+                }
+
+                cs_close(&handle);
+        }
+
         return EXIT_SUCCESS;
 }
 
@@ -319,54 +501,11 @@ int SetHardwareBreakpoint(debuggee *dbgee, const char *arg) {
                 return EXIT_FAILURE;
         }
 
-        int bpno = -1;
-        unsigned long dr0;
-        unsigned long dr1;
-        unsigned long dr2;
-        unsigned long dr3;
-        if (read_debug_register(dbgee->pid, DR0_OFFSET, &dr0) != 0) {
-                return EXIT_FAILURE;
-        }
-        if (read_debug_register(dbgee->pid, DR1_OFFSET, &dr1) != 0) {
-                return EXIT_FAILURE;
-        }
-        if (read_debug_register(dbgee->pid, DR2_OFFSET, &dr2) != 0) {
-                return EXIT_FAILURE;
-        }
-        if (read_debug_register(dbgee->pid, DR3_OFFSET, &dr3) != 0) {
-                return EXIT_FAILURE;
-        }
-
-        if (dr0 == 0) {
-                bpno = 0;
-        } else if (dr1 == 0) {
-                bpno = 1;
-        } else if (dr2 == 0) {
-                bpno = 2;
-        } else if (dr3 == 0) {
-                bpno = 3;
-        } else {
-                (void)(fprintf(
-                    stderr, "No available hardware breakpoint registers.\n"));
-                return EXIT_FAILURE;
-        }
-
-        unsigned long dr_offset;
-        switch (bpno) {
-        case 0:
-                dr_offset = DR0_OFFSET;
-                break;
-        case 1:
-                dr_offset = DR1_OFFSET;
-                break;
-        case 2:
-                dr_offset = DR2_OFFSET;
-                break;
-        case 3:
-                dr_offset = DR3_OFFSET;
-                break;
-        default:
-                (void)(fprintf(stderr, "Invalid breakpoint number.\n"));
+        int bpno = 0;
+        unsigned long dr_offset = 0;
+        if (!get_available_debug_register(dbgee, &bpno, &dr_offset)) {
+                (void)(fprintf(stderr,
+                               "No available hardware debug registers.\n"));
                 return EXIT_FAILURE;
         }
 
@@ -387,6 +526,59 @@ int SetHardwareBreakpoint(debuggee *dbgee, const char *arg) {
         printf("Hardware breakpoint set at 0x%lx [Index: %zu, DR%d]\n", address,
                bp_index, bpno);
 
+        return EXIT_SUCCESS;
+}
+
+int SetWatchpoint(debuggee *dbgee, const char *arg) {
+        uintptr_t address = 0;
+
+        if (!parse_breakpoint_argument(dbgee, arg, &address)) {
+                return EXIT_FAILURE;
+        }
+
+        if (address == 0) {
+                (void)(fprintf(stderr, "Invalid address: %s\n", arg));
+                return EXIT_FAILURE;
+        }
+
+        if (breakpoint_exists(dbgee, address)) {
+                (void)(fprintf(stderr,
+                               "A watchpoint already exists at address 0x%lx\n",
+                               address));
+                return EXIT_FAILURE;
+        }
+
+        int bpno = 0;
+        unsigned long dr_offset = 0;
+        if (!get_available_debug_register(dbgee, &bpno, &dr_offset)) {
+                (void)(fprintf(stderr,
+                               "No available hardware debug registers.\n"));
+                return EXIT_FAILURE;
+        }
+
+        if (set_debug_register(dbgee->pid, dr_offset, address) != 0) {
+                (void)(fprintf(stderr, "Failed to set DR%d to 0x%lx.\n", bpno,
+                               address));
+                return EXIT_FAILURE;
+        }
+
+        if (configure_dr7(dbgee->pid, bpno, WATCHPOINT_RW_READ_WRITE,
+                          WATCHPOINT_LEN_4_BYTES, true) != 0) {
+                (void)(fprintf(stderr,
+                               "Failed to configure DR7 for watchpoint %d.\n",
+                               bpno));
+                return EXIT_FAILURE;
+        }
+
+        size_t bp_index = add_hardware_breakpoint(dbgee->bp_handler, address);
+        if (bp_index == (size_t)-1) {
+                (void)(fprintf(stderr,
+                               "Failed to add watchpoint to handler.\n"));
+                return EXIT_FAILURE;
+        }
+
+        printf("Watchpoint set at 0x%lx [Index: %zu, DR%d]\n", address,
+               bp_index, bpno);
         return EXIT_SUCCESS;
 }
 
@@ -492,11 +684,12 @@ int RemoveBreakpoint(debuggee *dbgee, const char *arg) {
 
 void ListBreakpoints(debuggee *dbgee) { list_breakpoints(dbgee->bp_handler); }
 
-int Dump(debuggee *dbgee) {
+int Dump(debuggee *dbgee) { // NOLINT
         unsigned long rip;
         unsigned char buf[DUMP_SIZE];
         unsigned long base_address;
         char module_name[MODULE_NAME_SIZE] = {0};
+        size_t dump_length = DUMP_SIZE;
 
         if (read_rip(dbgee, &rip) != 0) {
                 (void)(fprintf(stderr, "Failed to retrieve current RIP.\n"));
@@ -516,6 +709,39 @@ int Dump(debuggee *dbgee) {
                 return EXIT_FAILURE;
         }
 
+        csh handle;
+        cs_insn *insn;
+        size_t count;
+
+        if (cs_open(CS_ARCH_X86, CS_MODE_64, &handle) != CS_ERR_OK) {
+                (void)(fprintf(stderr, "Failed to initialize Capstone.\n"));
+                return EXIT_FAILURE;
+        }
+
+        cs_option(handle, CS_OPT_SYNTAX, CS_OPT_SYNTAX_INTEL);
+
+        count = cs_disasm(handle, buf, sizeof(buf), rip, 0, &insn);
+        if (count > 0) {
+                for (size_t i = 0; i < count; i++) {
+                        size_t insn_length = insn[i].size;
+
+                        if (strcmp(insn[i].mnemonic, "ret") == 0) {
+                                dump_length =
+                                    insn[i].address - rip + insn_length;
+                                break;
+                        }
+                }
+
+                cs_free(insn, count);
+        } else {
+                (void)(fprintf(
+                    stderr, "Failed to disassemble memory at 0x%lx.\n", rip));
+                cs_close(&handle);
+                return EXIT_FAILURE;
+        }
+
+        cs_close(&handle);
+
         printf("Memory dump in module '%s' at RIP: 0x%016lx (Offset: 0x%lx)\n",
                module_name, rip, rip - base_address);
 
@@ -526,13 +752,13 @@ int Dump(debuggee *dbgee) {
         printf("---------------------------------------------------------------"
                "----------------------\n");
 
-        for (size_t i = 0; i < sizeof(buf); i += WORD_LENGTH) {
+        for (size_t i = 0; i < dump_length; i += WORD_LENGTH) {
                 unsigned long current_address = rip + i;
                 unsigned long offset = current_address - base_address;
                 printf("0x%016lx (0x%lx): ", current_address, offset);
 
                 for (size_t j = 0; j < WORD_LENGTH; ++j) {
-                        if (i + j < sizeof(buf)) {
+                        if (i + j < dump_length) {
                                 printf("%02x ", buf[i + j]);
                         } else {
                                 printf("   ");
@@ -540,8 +766,9 @@ int Dump(debuggee *dbgee) {
                 }
 
                 printf(" ");
+
                 for (size_t j = 0; j < WORD_LENGTH; ++j) {
-                        if (i + j < sizeof(buf)) {
+                        if (i + j < dump_length) {
                                 unsigned char c = buf[i + j];
                                 printf("%c", (c >= ASCII_PRINTABLE_MIN &&
                                               c <= ASCII_PRINTABLE_MAX)
@@ -551,6 +778,10 @@ int Dump(debuggee *dbgee) {
                 }
 
                 printf("\n");
+
+                if (i + WORD_LENGTH >= dump_length) {
+                        break;
+                }
         }
 
         printf("---------------------------------------------------------------"
@@ -605,10 +836,8 @@ int Disassemble(debuggee *dbgee) {
                 for (size_t i = 0; i < count; i++) {
                         unsigned long insn_offset =
                             insn[i].address - base_address;
-                        printf("0x%016lx (0x%lx): %-10s\t%s\n",
-                               insn[i].address,
-                               insn_offset,
-                               insn[i].mnemonic, insn[i].op_str);
+                        printf("0x%016lx (0x%lx): %-10s\t%s\n", insn[i].address,
+                               insn_offset, insn[i].mnemonic, insn[i].op_str);
 
                         if (strcmp(insn[i].mnemonic, "ret") == 0) {
                                 break;
@@ -699,6 +928,138 @@ int StepOut(debuggee *dbgee) {
         return EXIT_SUCCESS;
 }
 
+int DisplayGlobalVariables(debuggee *dbgee) {
+        elf_symtab symtab_struct;
+        if (!read_elf_symtab(dbgee->name, &symtab_struct)) {
+                (void)(fprintf(stderr, "Failed to read ELF symbol tables.\n"));
+                return EXIT_FAILURE;
+        }
+
+        printf("Global Variables with Values:\n");
+        printf("---------------------------------------------------------------"
+               "-----------------\n");
+        printf("%-40s %-18s %-10s %-20s\n", "Name", "Address", "Size", "Value");
+        printf("---------------------------------------------------------------"
+               "-----------------\n");
+
+        unsigned long base_address = get_load_base(dbgee);
+        if (base_address == 0) {
+                (void)(fprintf(stderr, "Failed to get base address.\n"));
+                for (size_t i = 0; i < symtab_struct.num_entries; i++) {
+                        free(symtab_struct.entries[i].symtab);
+                        free(symtab_struct.entries[i].strtab);
+                }
+                free(symtab_struct.entries);
+                return EXIT_FAILURE;
+        }
+
+        for (size_t entry_idx = 0; entry_idx < symtab_struct.num_entries;
+             entry_idx++) {
+                elf_symtab_entry *entry = &symtab_struct.entries[entry_idx];
+                for (size_t j = 0; j < entry->num_symbols; j++) {
+                        Elf64_Sym sym = entry->symtab[j];
+                        if ((ELF64_ST_TYPE(sym.st_info) != STT_OBJECT) ||
+                            (ELF64_ST_BIND(sym.st_info) != STB_GLOBAL) ||
+                            (sym.st_shndx == SHN_UNDEF)) {
+                                continue;
+                        }
+
+                        const char *sym_name = entry->strtab + sym.st_name;
+                        if (sym_name == NULL || strlen(sym_name) == 0) {
+                                continue;
+                        }
+
+                        unsigned long abs_address = base_address + sym.st_value;
+
+                        unsigned long value;
+                        errno = 0;
+                        value = ptrace(PTRACE_PEEKDATA, dbgee->pid,
+                                       (uintptr_t)abs_address, NULL);
+                        if (value == (unsigned long)-1 && errno != 0) {
+                                perror("ptrace PEEKDATA");
+                                continue;
+                        }
+
+                        printf("%-40s 0x%016lx %-10lu 0x%016lx\n", sym_name,
+                               abs_address, sym.st_size, value);
+                }
+        }
+        printf("---------------------------------------------------------------"
+               "-----------------\n");
+
+        for (size_t i = 0; i < symtab_struct.num_entries; i++) {
+                free(symtab_struct.entries[i].symtab);
+                free(symtab_struct.entries[i].strtab);
+        }
+        free(symtab_struct.entries);
+        return EXIT_SUCCESS;
+}
+
+int DisplayFunctionNames(debuggee *dbgee) {
+        if (dbgee == NULL || dbgee->name == NULL) {
+                (void)(fprintf(stderr, "Invalid debuggee or debuggee name.\n"));
+                return EXIT_FAILURE;
+        }
+
+        elf_symtab symtab_struct;
+        if (!read_elf_symtab(dbgee->name, &symtab_struct)) {
+                (void)(fprintf(stderr, "Failed to read ELF symbol tables.\n"));
+                return EXIT_FAILURE;
+        }
+
+        unsigned long base_address = get_load_base(dbgee);
+        if (base_address == 0) {
+                (void)(fprintf(stderr, "Failed to get base address.\n"));
+                for (size_t i = 0; i < symtab_struct.num_entries; i++) {
+                        free(symtab_struct.entries[i].symtab);
+                        free(symtab_struct.entries[i].strtab);
+                }
+                free(symtab_struct.entries);
+                return EXIT_FAILURE;
+        }
+
+        printf("Function Names with Addresses:\n");
+        printf("---------------------------------------------------------------"
+               "-----------------\n");
+        printf("%-40s %-18s %-10s\n", "Name", "Address", "Size");
+        printf("---------------------------------------------------------------"
+               "-----------------\n");
+
+        for (size_t entry_idx = 0; entry_idx < symtab_struct.num_entries;
+             entry_idx++) {
+                elf_symtab_entry *entry = &symtab_struct.entries[entry_idx];
+                for (size_t j = 0; j < entry->num_symbols; j++) {
+                        Elf64_Sym sym = entry->symtab[j];
+
+                        if ((ELF64_ST_TYPE(sym.st_info) != STT_FUNC) ||
+                            (sym.st_shndx == SHN_UNDEF)) {
+                                continue;
+                        }
+
+                        const char *sym_name = entry->strtab + sym.st_name;
+                        if (sym_name == NULL || strlen(sym_name) == 0) {
+                                continue;
+                        }
+
+                        unsigned long abs_address = base_address + sym.st_value;
+
+                        printf("%-40s 0x%016lx %-10lu\n", sym_name, abs_address,
+                               sym.st_size);
+                }
+        }
+
+        printf("---------------------------------------------------------------"
+               "-----------------\n");
+
+        for (size_t i = 0; i < symtab_struct.num_entries; i++) {
+                free(symtab_struct.entries[i].symtab);
+                free(symtab_struct.entries[i].strtab);
+        }
+        free(symtab_struct.entries);
+
+        return EXIT_SUCCESS;
+}
+
 bool parse_breakpoint_argument(debuggee *dbgee, const char *arg,
                                uintptr_t *address_out) {
         if (arg == NULL || address_out == NULL) {
@@ -766,6 +1127,10 @@ bool parse_breakpoint_argument(debuggee *dbgee, const char *arg,
                 *address_out = address;
         }
 
+        if (!is_valid_address(dbgee, *address_out)) {
+                *address_out = 0;
+        }
+
         return true;
 }
 
@@ -812,7 +1177,6 @@ int get_return_address(debuggee *dbgee, unsigned long *ret_addr_out) {
         return 0;
 }
 
-
 int set_debug_register(pid_t pid, unsigned long offset, unsigned long value) {
         if (ptrace(PTRACE_POKEUSER, pid, offset, value) == -1) {
                 perror("ptrace POKEUSER DR7");
@@ -831,9 +1195,96 @@ int read_debug_register(pid_t pid, unsigned long offset, unsigned long *value) {
         return EXIT_SUCCESS;
 }
 
-int set_rip(debuggee *dbgee, const unsigned long rip) {
-        struct user_regs_struct regs;
+bool get_available_debug_register(debuggee *dbgee, int *bpno,
+                                  unsigned long *dr_offset) {
+        unsigned long dr0;
+        unsigned long dr1;
+        unsigned long dr2;
+        unsigned long dr3;
+        if (read_debug_register(dbgee->pid, DR0_OFFSET, &dr0) != 0 ||
+            read_debug_register(dbgee->pid, DR1_OFFSET, &dr1) != 0 ||
+            read_debug_register(dbgee->pid, DR2_OFFSET, &dr2) != 0 ||
+            read_debug_register(dbgee->pid, DR3_OFFSET, &dr3) != 0) {
+                return EXIT_FAILURE;
+        }
 
+        if (dr0 == 0) {
+                *bpno = 0;
+        } else if (dr1 == 0) {
+                *bpno = 1;
+        } else if (dr2 == 0) {
+                *bpno = 2;
+        } else if (dr3 == 0) {
+                *bpno = 3;
+        } else {
+                return false;
+        }
+
+        switch (*bpno) {
+        case 0:
+                *dr_offset = DR0_OFFSET;
+                break;
+        case 1:
+                *dr_offset = DR1_OFFSET;
+                break;
+        case 2:
+                *dr_offset = DR2_OFFSET;
+                break;
+        case 3:
+                *dr_offset = DR3_OFFSET;
+                break;
+        default:
+                return false;
+        }
+
+        return true;
+}
+
+bool is_valid_address(debuggee *dbgee, unsigned long addr) {
+        char maps_path[MODULE_NAME_SIZE];
+        (void)(snprintf(maps_path, sizeof(maps_path), "/proc/%d/maps",
+                        dbgee->pid));
+
+        FILE *maps = fopen(maps_path, "r");
+        if (!maps) {
+                perror("fopen /proc/<pid>/maps");
+                return false;
+        }
+
+        char line[LINE_BUFFER_SIZE];
+        bool valid = false;
+
+        while (fgets(line, sizeof(line), maps)) {
+                unsigned long start;
+                unsigned long end;
+                char perms[PERMS_SIZE];
+                if (sscanf(line, "%lx-%lx %4s", // NOLINT
+                           &start, &end, perms) != 3) {
+                        continue;
+                }
+
+                if (addr >= start && addr < end) {
+                        if (strchr(perms, 'x') != NULL) {
+                                valid = true;
+                        }
+                        break;
+                }
+        }
+
+        (void)(fclose(maps));
+        return valid;
+}
+
+int set_rip(debuggee *dbgee, unsigned long rip) {
+        if (!is_valid_address(dbgee, rip)) {
+                (void)(fprintf(stderr,
+                               "Error: Invalid RIP address 0x%lx. Address is "
+                               "not mapped or not executable.\n",
+                               rip));
+                return EXIT_FAILURE;
+        }
+
+        struct user_regs_struct regs;
         if (ptrace(PTRACE_GETREGS, dbgee->pid, NULL, &regs) == -1) {
                 perror("ptrace GETREGS");
                 return EXIT_FAILURE;
@@ -983,39 +1434,9 @@ int handle_software_breakpoint(debuggee *dbgee, size_t bp_index) {
                 return EXIT_FAILURE;
         }
 
-        if (Step(dbgee) != 0) {
+        if (!step_and_wait(dbgee)) {
                 (void)(fprintf(stderr, "Failed to single step.\n"));
                 return EXIT_FAILURE;
-        }
-
-        int wait_status;
-        if (waitpid(dbgee->pid, &wait_status, 0) == -1) {
-                perror("waitpid");
-                return EXIT_FAILURE;
-        }
-
-        if (WIFEXITED(wait_status)) {
-                printf("Debuggee exited during single-step with status %d.\n",
-                       WEXITSTATUS(wait_status));
-                dbgee->state = TERMINATED;
-                return EXIT_FAILURE;
-        }
-
-        if (WIFSIGNALED(wait_status)) {
-                printf("Debuggee was killed by signal %d during single-step.\n",
-                       WTERMSIG(wait_status));
-                dbgee->state = TERMINATED;
-                return EXIT_FAILURE;
-        }
-
-        if (WIFSTOPPED(wait_status)) {
-                int sig = WSTOPSIG(wait_status);
-                if (sig != SIGTRAP) {
-                        (void)(fprintf(
-                            stderr,
-                            "Unexpected signal %d during single-step.\n", sig));
-                        exit(EXIT_FAILURE);
-                }
         }
 
         if (bp->temporary) {
@@ -1212,150 +1633,50 @@ unsigned long get_module_base_address(pid_t pid, unsigned long rip,
         return base_address;
 }
 
-unsigned long get_symbol_offset(debuggee *dbgee, // NOLINT
-                                const char *symbol_name) {
-        int fd = open(dbgee->name, O_RDONLY);
-        if (fd < 0) {
-                perror("open ELF file");
+unsigned long get_symbol_offset(debuggee *dbgee, const char *symbol_name) {
+        if (symbol_name == NULL) {
+                (void)(fprintf(stderr, "Symbol name cannot be NULL.\n"));
                 return 0;
         }
 
-        Elf64_Ehdr ehdr;
-        if (read(fd, &ehdr, sizeof(ehdr)) != sizeof(ehdr)) {
-                perror("read ELF header");
-                close(fd);
-                return 0;
-        }
-
-        if (memcmp(ehdr.e_ident, ELFMAG, SELFMAG) != 0) {
-                (void)(fprintf(stderr, "Not a valid ELF file.\n"));
-                close(fd);
-                return 0;
-        }
-
-        if (lseek(fd, (off_t)ehdr.e_shoff, SEEK_SET) == -1) {
-                perror("lseek to section headers");
-                close(fd);
-                return 0;
-        }
-
-        Elf64_Shdr *shdrs = malloc((size_t)(ehdr.e_shentsize * ehdr.e_shnum));
-        if (!shdrs) {
-                perror("malloc for section headers");
-                close(fd);
-                return 0;
-        }
-
-        if (read(fd, shdrs, (size_t)(ehdr.e_shentsize * ehdr.e_shnum)) !=
-            (ssize_t)(ehdr.e_shentsize * ehdr.e_shnum)) {
-                perror("read section headers");
-                free(shdrs);
-                close(fd);
-                return 0;
-        }
-
-        Elf64_Shdr sh_strtab = shdrs[ehdr.e_shstrndx];
-        char *shstrtab = malloc(sh_strtab.sh_size);
-        if (!shstrtab) {
-                perror("malloc for shstrtab");
-                free(shdrs);
-                close(fd);
-                return 0;
-        }
-
-        if (lseek(fd, (off_t)sh_strtab.sh_offset, SEEK_SET) == -1) {
-                perror("lseek to shstrtab");
-                free(shstrtab);
-                free(shdrs);
-                close(fd);
-                return 0;
-        }
-
-        if (read(fd, shstrtab, sh_strtab.sh_size) !=
-            (ssize_t)sh_strtab.sh_size) {
-                perror("read shstrtab");
-                free(shstrtab);
-                free(shdrs);
-                close(fd);
+        elf_symtab symtab_struct;
+        if (!read_elf_symtab(dbgee->name, &symtab_struct)) {
+                (void)(fprintf(stderr, "Failed to read ELF symbol tables.\n"));
                 return 0;
         }
 
         unsigned long symbol_offset = 0;
-        for (int i = 0; i < ehdr.e_shnum; i++) {
-                const char *section_name = shstrtab + shdrs[i].sh_name;
-                if (strcmp(section_name, ".symtab") == 0 ||
-                    strcmp(section_name, ".dynsym") == 0) {
-                        size_t num_symbols =
-                            shdrs[i].sh_size / shdrs[i].sh_entsize;
-                        Elf64_Sym *symtab = malloc(shdrs[i].sh_size);
-                        if (!symtab) {
-                                perror("malloc for symtab");
-                                continue;
-                        }
+        bool found = false;
 
-                        if (lseek(fd, (off_t)shdrs[i].sh_offset, SEEK_SET) ==
-                            -1) {
-                                perror("lseek to symtab");
-                                free(symtab);
-                                continue;
-                        }
+        for (size_t entry_idx = 0; entry_idx < symtab_struct.num_entries;
+             entry_idx++) {
+                elf_symtab_entry *entry = &symtab_struct.entries[entry_idx];
+                for (size_t j = 0; j < entry->num_symbols; j++) {
+                        Elf64_Sym sym = entry->symtab[j];
+                        const char *sym_name = entry->strtab + sym.st_name;
 
-                        if (read(fd, symtab, shdrs[i].sh_size) !=
-                            (ssize_t)shdrs[i].sh_size) {
-                                perror("read symtab");
-                                free(symtab);
-                                continue;
+                        if (strcmp(sym_name, symbol_name) == 0) {
+                                symbol_offset = sym.st_value;
+                                found = true;
+                                break;
                         }
-
-                        Elf64_Shdr strtab_shdr = shdrs[shdrs[i].sh_link];
-                        char *strtab = malloc(strtab_shdr.sh_size);
-                        if (!strtab) {
-                                perror("malloc for strtab");
-                                free(symtab);
-                                continue;
-                        }
-
-                        if (lseek(fd, (off_t)strtab_shdr.sh_offset, SEEK_SET) ==
-                            -1) {
-                                perror("lseek to strtab");
-                                free(strtab);
-                                free(symtab);
-                                continue;
-                        }
-
-                        if (read(fd, strtab, strtab_shdr.sh_size) !=
-                            (ssize_t)strtab_shdr.sh_size) {
-                                perror("read strtab");
-                                free(strtab);
-                                free(symtab);
-                                continue;
-                        }
-
-                        for (size_t j = 0; j < num_symbols; j++) {
-                                const char *sym_name =
-                                    strtab + symtab[j].st_name;
-                                if (strcmp(sym_name, symbol_name) == 0) {
-                                        symbol_offset = symtab[j].st_value;
-                                        free(strtab);
-                                        free(symtab);
-                                        goto cleanup;
-                                }
-                        }
-
-                        free(strtab);
-                        free(symtab);
+                }
+                if (found) {
+                        break;
                 }
         }
 
-cleanup:
-        if (symbol_offset == 0) {
+        if (!found) {
                 (void)(fprintf(stderr, "'%s' symbol not found in %s.\n",
                                symbol_name, dbgee->name));
         }
 
-        free(shstrtab);
-        free(shdrs);
-        close(fd);
+        for (size_t i = 0; i < symtab_struct.num_entries; i++) {
+                free(symtab_struct.entries[i].symtab);
+                free(symtab_struct.entries[i].strtab);
+        }
+        free(symtab_struct.entries);
+
         return symbol_offset;
 }
 
@@ -1376,4 +1697,49 @@ unsigned long get_main_absolute_address(debuggee *dbgee) {
         unsigned long main_absolute = base_address + main_offset;
         printf("'main' absolute address: 0x%lx\n", main_absolute);
         return main_absolute;
+}
+
+bool step_and_wait(debuggee *dbgee) {
+        if (Step(dbgee) != EXIT_SUCCESS) {
+                (void)(fprintf(stderr, "Failed to execute single step.\n"));
+                return false;
+        }
+
+        int wait_status;
+        if (waitpid(dbgee->pid, &wait_status, 0) == -1) {
+                perror("waitpid");
+                return false;
+        }
+
+        if (WIFEXITED(wait_status)) {
+                printf("Debuggee exited with status %d during single step.\n",
+                       WEXITSTATUS(wait_status));
+                dbgee->state = TERMINATED;
+                return false;
+        }
+
+        if (WIFSIGNALED(wait_status)) {
+                printf("Debuggee was killed by signal %d during single step.\n",
+                       WTERMSIG(wait_status));
+                dbgee->state = TERMINATED;
+                return false;
+        }
+
+        if (WIFSTOPPED(wait_status)) {
+                int sig = WSTOPSIG(wait_status);
+                if (sig != SIGTRAP) {
+                        (void)(fprintf(stderr,
+                                       "Received unexpected signal %d during "
+                                       "single step.\n",
+                                       sig));
+                        return false;
+                }
+        } else {
+                (void)(fprintf(
+                    stderr,
+                    "Debuggee did not stop as expected during single step.\n"));
+                return false;
+        }
+
+        return true;
 }

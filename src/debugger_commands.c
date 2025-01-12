@@ -12,19 +12,25 @@
 static const command_mapping command_map[] = {
     {"help", CLI_HELP},
     {"exit", CLI_EXIT},
+    {"clear", CLI_CLEAR},
     {"run", DBG_RUN},
     {"con", DBG_CONTINUE},
+    {"step", DBG_STEP},
+    {"over", DBG_STEP_OVER},
+    {"out", DBG_STEP_OUT},
+    {"skip", DBG_SKIP},
+    {"jump", DBG_JUMP},
+    {"trace", DBG_TRACE},
     {"regs", DBG_REGISTERS},
     {"break", DBG_BREAK},
     {"hbreak", DBG_HBREAK},
+    {"watch", DBG_WATCH},
     {"points", DBG_LIST_BREAKPOINTS},
     {"remove", DBG_REMOVE_BREAKPOINT},
     {"dump", DBG_DUMP},
     {"dis", DBG_DIS},
-    {"step", DBG_STEP},
-    {"over", DBG_STEP_OVER},
-    {"out", DBG_STEP_OUT},
-    {"clear", CLI_CLEAR},
+    {"vars", DBG_GLOB_VARS},
+    {"funcs", DBG_FUNC_NAMES},
 };
 
 enum {
@@ -59,18 +65,31 @@ void completion(const char *buf, linenoiseCompletions *lc) {
 int handle_user_input(debugger *dbg, command_t cmd_type, // NOLINT
                       const char *arg) {
         switch (cmd_type) {
-        case UNKNOWN:
-                printf("Unknown command.\n");
+        case CLI_EXIT: {
+                char *confirm =
+                    linenoise("Are you sure you want to exit? (y/n): ");
+                if (confirm != NULL) {
+                        if (confirm[0] == 'y' || confirm[0] == 'Y') {
+                                free_debugger(dbg);
+                                printf("Exiting debugger.\n");
+                                free(confirm);
+                                exit(EXIT_SUCCESS);
+                        } else {
+                                printf("Exit canceled.\n");
+                        }
+                        free(confirm);
+                } else {
+                        printf("\nExit canceled (no confirmation received).\n");
+                }
                 return PROMPT_USER_AGAIN;
-
-        case CLI_EXIT:
-                free_debugger(dbg);
-                printf("Exiting debugger.\n");
-                exit(EXIT_SUCCESS);
-                return DONT_PROMPT_USER_AGAIN;
+        }
 
         case CLI_HELP:
                 Help();
+                return PROMPT_USER_AGAIN;
+
+        case CLI_CLEAR:
+                linenoiseClearScreen();
                 return PROMPT_USER_AGAIN;
 
         case DBG_RUN:
@@ -86,6 +105,56 @@ int handle_user_input(debugger *dbg, command_t cmd_type, // NOLINT
                         return PROMPT_USER_AGAIN;
                 }
                 return DONT_PROMPT_USER_AGAIN;
+
+        case DBG_STEP:
+                if (Step(&dbg->dbgee) != 0) {
+                        printf("Failed to single step.\n");
+                }
+                return DONT_PROMPT_USER_AGAIN;
+
+        case DBG_STEP_OVER:
+                if (StepOver(&dbg->dbgee) != 0) {
+                        printf("Failed to step over.\n");
+                }
+                return DONT_PROMPT_USER_AGAIN;
+
+        case DBG_STEP_OUT:
+                if (StepOut(&dbg->dbgee) != 0) {
+                        printf("Failed to step out.\n");
+                }
+                return DONT_PROMPT_USER_AGAIN;
+
+        case DBG_SKIP:
+                if (arg == NULL) {
+                        printf("Usage: skip <n>\n");
+                        return PROMPT_USER_AGAIN;
+                }
+                if (Skip(&dbg->dbgee, arg) != 0) {
+                        printf("Failed to skip '%s' times.\n", arg);
+                }
+                return PROMPT_USER_AGAIN;
+
+        case DBG_JUMP:
+                if (arg == NULL) {
+                        printf("Usage: jump "
+                               "<addr>|*<offset>|&<func_name>\n");
+                        return PROMPT_USER_AGAIN;
+                }
+                if (Jump(&dbg->dbgee, arg) != 0) {
+                        printf("Failed to jump to '%s'.\n", arg);
+                }
+                return DONT_PROMPT_USER_AGAIN;
+
+        case DBG_TRACE:
+                if (arg == NULL) {
+                        printf("Usage: trace "
+                               "<addr>|*<offset>|&<func_name>\n");
+                        return PROMPT_USER_AGAIN;
+                }
+                if (Trace(&dbg->dbgee, arg) != 0) {
+                        printf("Failed to trace '%s'.\n", arg);
+                }
+                return PROMPT_USER_AGAIN;
 
         case DBG_REGISTERS:
                 if (Registers(&dbg->dbgee) != 0) {
@@ -117,6 +186,16 @@ int handle_user_input(debugger *dbg, command_t cmd_type, // NOLINT
                 }
                 return PROMPT_USER_AGAIN;
 
+        case DBG_WATCH:
+                if (arg == NULL) {
+                        printf("Usage: watch <addr>|*<offset>|&<glob_var>\n");
+                        return PROMPT_USER_AGAIN;
+                }
+                if (SetWatchpoint(&dbg->dbgee, arg) != 0) {
+                        printf("Failed to set watchpoint at '%s'.\n", arg);
+                }
+                return PROMPT_USER_AGAIN;
+
         case DBG_LIST_BREAKPOINTS:
                 ListBreakpoints(&dbg->dbgee);
                 return PROMPT_USER_AGAIN;
@@ -144,26 +223,20 @@ int handle_user_input(debugger *dbg, command_t cmd_type, // NOLINT
                 }
                 return PROMPT_USER_AGAIN;
 
-        case DBG_STEP:
-                if (Step(&dbg->dbgee) != 0) {
-                        printf("Failed to single step.\n");
+        case DBG_GLOB_VARS:
+                if (DisplayGlobalVariables(&dbg->dbgee) != 0) {
+                        printf("Failed to display global variables.\n");
                 }
-                return DONT_PROMPT_USER_AGAIN;
+                return PROMPT_USER_AGAIN;
 
-        case DBG_STEP_OVER:
-                if (StepOver(&dbg->dbgee) != 0) {
-                        printf("Failed to step over.\n");
+        case DBG_FUNC_NAMES:
+                if (DisplayFunctionNames(&dbg->dbgee) != 0) {
+                        printf("Failed to display function names.\n");
                 }
-                return DONT_PROMPT_USER_AGAIN;
+                return PROMPT_USER_AGAIN;
 
-        case DBG_STEP_OUT:
-                if (StepOut(&dbg->dbgee) != 0) {
-                        printf("Failed to step out.\n");
-                }
-                return DONT_PROMPT_USER_AGAIN;
-
-        case CLI_CLEAR:
-                linenoiseClearScreen();
+        case UNKNOWN:
+                printf("Unknown command.\n");
                 return PROMPT_USER_AGAIN;
 
         default:
@@ -174,6 +247,7 @@ int handle_user_input(debugger *dbg, command_t cmd_type, // NOLINT
 
 int read_and_handle_user_command(debugger *dbg) {
         char *input = NULL;
+        char *last_command = NULL;
 
         linenoiseHistorySetMaxLen(LINENOISE_MAX_HISTORY_LENGTH);
         linenoiseSetCompletionCallback(completion);
@@ -189,7 +263,22 @@ int read_and_handle_user_command(debugger *dbg) {
                         exit(EXIT_FAILURE);
                 }
 
-                linenoiseHistoryAdd(input);
+                if (strcmp(input, "!!") == 0) {
+                        if (last_command) {
+                                printf("Repeating last command: %s\n",
+                                       last_command);
+                                free(input);
+                                input = strdup(last_command);
+                        } else {
+                                printf("No previous command to repeat.\n");
+                                free(input);
+                                continue;
+                        }
+                } else {
+                        linenoiseHistoryAdd(input);
+                        free((void *)last_command);
+                        last_command = strdup(input);
+                }
 
                 input[strcspn(input, "\n")] = '\0';
 
@@ -202,10 +291,13 @@ int read_and_handle_user_command(debugger *dbg) {
                 }
 
                 if (handle_user_input(dbg, cmd_type, arg) == EXIT_SUCCESS) {
+                        free(input);
                         break;
                 }
+
+                free(input);
         }
 
-        free(input);
+        free((void *)last_command);
         return EXIT_SUCCESS;
 }
