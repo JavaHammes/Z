@@ -15,17 +15,21 @@ static const command_mapping command_map[] = {
     {"clear", CLI_CLEAR},
     {"run", DBG_RUN},
     {"con", DBG_CONTINUE},
+    {"step", DBG_STEP},
+    {"over", DBG_STEP_OVER},
+    {"out", DBG_STEP_OUT},
+    {"skip", DBG_SKIP},
+    {"jump", DBG_JUMP},
+    {"trace", DBG_TRACE},
     {"regs", DBG_REGISTERS},
     {"break", DBG_BREAK},
     {"hbreak", DBG_HBREAK},
+    {"watch", DBG_WATCH},
     {"points", DBG_LIST_BREAKPOINTS},
     {"remove", DBG_REMOVE_BREAKPOINT},
     {"dump", DBG_DUMP},
     {"dis", DBG_DIS},
-    {"step", DBG_STEP},
-    {"over", DBG_STEP_OVER},
-    {"out", DBG_STEP_OUT},
-    {"globs", DBG_GLOB_VARS},
+    {"vars", DBG_GLOB_VARS},
     {"funcs", DBG_FUNC_NAMES},
 };
 
@@ -102,6 +106,56 @@ int handle_user_input(debugger *dbg, command_t cmd_type, // NOLINT
                 }
                 return DONT_PROMPT_USER_AGAIN;
 
+        case DBG_STEP:
+                if (Step(&dbg->dbgee) != 0) {
+                        printf("Failed to single step.\n");
+                }
+                return DONT_PROMPT_USER_AGAIN;
+
+        case DBG_STEP_OVER:
+                if (StepOver(&dbg->dbgee) != 0) {
+                        printf("Failed to step over.\n");
+                }
+                return DONT_PROMPT_USER_AGAIN;
+
+        case DBG_STEP_OUT:
+                if (StepOut(&dbg->dbgee) != 0) {
+                        printf("Failed to step out.\n");
+                }
+                return DONT_PROMPT_USER_AGAIN;
+
+        case DBG_SKIP:
+                if (arg == NULL) {
+                        printf("Usage: skip <n>\n");
+                        return PROMPT_USER_AGAIN;
+                }
+                if (Skip(&dbg->dbgee, arg) != 0) {
+                        printf("Failed to skip '%s' times.\n", arg);
+                }
+                return PROMPT_USER_AGAIN;
+
+        case DBG_JUMP:
+                if (arg == NULL) {
+                        printf("Usage: jump "
+                               "<addr>|*<offset>|&<func_name>\n");
+                        return PROMPT_USER_AGAIN;
+                }
+                if (Jump(&dbg->dbgee, arg) != 0) {
+                        printf("Failed to jump to '%s'.\n", arg);
+                }
+                return DONT_PROMPT_USER_AGAIN;
+
+        case DBG_TRACE:
+                if (arg == NULL) {
+                        printf("Usage: trace "
+                               "<addr>|*<offset>|&<func_name>\n");
+                        return PROMPT_USER_AGAIN;
+                }
+                if (Trace(&dbg->dbgee, arg) != 0) {
+                        printf("Failed to trace '%s'.\n", arg);
+                }
+                return PROMPT_USER_AGAIN;
+
         case DBG_REGISTERS:
                 if (Registers(&dbg->dbgee) != 0) {
                         printf("Failed to retrieve registers.\n");
@@ -132,6 +186,16 @@ int handle_user_input(debugger *dbg, command_t cmd_type, // NOLINT
                 }
                 return PROMPT_USER_AGAIN;
 
+        case DBG_WATCH:
+                if (arg == NULL) {
+                        printf("Usage: watch <addr>|*<offset>|&<glob_var>\n");
+                        return PROMPT_USER_AGAIN;
+                }
+                if (SetWatchpoint(&dbg->dbgee, arg) != 0) {
+                        printf("Failed to set watchpoint at '%s'.\n", arg);
+                }
+                return PROMPT_USER_AGAIN;
+
         case DBG_LIST_BREAKPOINTS:
                 ListBreakpoints(&dbg->dbgee);
                 return PROMPT_USER_AGAIN;
@@ -158,24 +222,6 @@ int handle_user_input(debugger *dbg, command_t cmd_type, // NOLINT
                         printf("Failed to disassemble memory.\n");
                 }
                 return PROMPT_USER_AGAIN;
-
-        case DBG_STEP:
-                if (Step(&dbg->dbgee) != 0) {
-                        printf("Failed to single step.\n");
-                }
-                return DONT_PROMPT_USER_AGAIN;
-
-        case DBG_STEP_OVER:
-                if (StepOver(&dbg->dbgee) != 0) {
-                        printf("Failed to step over.\n");
-                }
-                return DONT_PROMPT_USER_AGAIN;
-
-        case DBG_STEP_OUT:
-                if (StepOut(&dbg->dbgee) != 0) {
-                        printf("Failed to step out.\n");
-                }
-                return DONT_PROMPT_USER_AGAIN;
 
         case DBG_GLOB_VARS:
                 if (DisplayGlobalVariables(&dbg->dbgee) != 0) {

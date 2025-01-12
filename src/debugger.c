@@ -132,9 +132,11 @@ int trace_debuggee(debugger *dbg) { // NOLINT
 
                         if (sig == SIGWINCH) {
                                 printf("Ignoring Signal 28.\n");
-                                if (ptrace(PTRACE_CONT, dbg->dbgee.pid, NULL, NULL) == -1) {
-                                            perror("ptrace CONT to ignore Signal 28");
-                                            return EXIT_FAILURE;
+                                if (ptrace(PTRACE_CONT, dbg->dbgee.pid, NULL,
+                                           NULL) == -1) {
+                                        perror(
+                                            "ptrace CONT to ignore Signal 28");
+                                        return EXIT_FAILURE;
                                 }
                                 continue;
                         }

@@ -26,25 +26,33 @@ void Help(void);
 
 int Run(debuggee *dbgee);
 int Continue(debuggee *dbgee);
+int Step(debuggee *dbgee);
+int StepOver(debuggee *dbgee);
+int StepOut(debuggee *dbgee);
+int Skip(debuggee *dbgee, const char *arg);
+int Jump(debuggee *dbgee, const char *arg);
+int Trace(debuggee *dbgee, const char *arg);
 int Registers(debuggee *dbgee);
 int Dump(debuggee *dbgee);
 int Disassemble(debuggee *dbgee);
 int DisplayGlobalVariables(debuggee *dbgee);
 int DisplayFunctionNames(debuggee *dbgee);
-int Step(debuggee *dbgee);
-int StepOver(debuggee *dbgee);
-int StepOut(debuggee *dbgee);
 
 int SetSoftwareBreakpoint(debuggee *dbgee, const char *arg);
 int SetHardwareBreakpoint(debuggee *dbgee, const char *arg);
+int SetWatchpoint(debuggee *dbgee, const char *arg);
 int RemoveBreakpoint(debuggee *dbgee, const char *arg);
 void ListBreakpoints(debuggee *dbgee);
 
 bool parse_breakpoint_argument(debuggee *dbgee, const char *arg,
                                uintptr_t *address_out);
+bool is_valid_address(debuggee *dbgee, unsigned long addr);
 
 int read_debug_register(pid_t pid, unsigned long offset, unsigned long *value);
+bool get_available_debug_register(debuggee *dbgee, int *bpno,
+                                  unsigned long *dr_offset);
 int read_rip(debuggee *dbgee, unsigned long *rip);
+int set_rip(debuggee *dbgee, unsigned long rip);
 int read_memory(pid_t pid, unsigned long address, unsigned char *buf,
                 size_t size);
 int set_debug_register(pid_t pid, unsigned long offset, unsigned long value);
@@ -67,3 +75,5 @@ unsigned long get_module_base_address(pid_t pid, unsigned long rip,
                                       size_t module_name_size);
 unsigned long get_symbol_offset(debuggee *dbgee, const char *symbol_name);
 unsigned long get_main_absolute_address(debuggee *dbgee);
+
+bool step_and_wait(debuggee *dbgee);
