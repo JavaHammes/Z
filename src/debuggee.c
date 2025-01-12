@@ -491,11 +491,12 @@ int RemoveBreakpoint(debuggee *dbgee, const char *arg) {
 
 void ListBreakpoints(debuggee *dbgee) { list_breakpoints(dbgee->bp_handler); }
 
-int Dump(debuggee *dbgee) {
+int Dump(debuggee *dbgee) { // NOLINT
         unsigned long rip;
         unsigned char buf[DUMP_SIZE];
         unsigned long base_address;
         char module_name[MODULE_NAME_SIZE] = {0};
+        size_t dump_length = DUMP_SIZE;
 
         if (read_rip(dbgee, &rip) != 0) {
                 (void)(fprintf(stderr, "Failed to retrieve current RIP.\n"));
@@ -515,6 +516,39 @@ int Dump(debuggee *dbgee) {
                 return EXIT_FAILURE;
         }
 
+        csh handle;
+        cs_insn *insn;
+        size_t count;
+
+        if (cs_open(CS_ARCH_X86, CS_MODE_64, &handle) != CS_ERR_OK) {
+                (void)(fprintf(stderr, "Failed to initialize Capstone.\n"));
+                return EXIT_FAILURE;
+        }
+
+        cs_option(handle, CS_OPT_SYNTAX, CS_OPT_SYNTAX_INTEL);
+
+        count = cs_disasm(handle, buf, sizeof(buf), rip, 0, &insn);
+        if (count > 0) {
+                for (size_t i = 0; i < count; i++) {
+                        size_t insn_length = insn[i].size;
+
+                        if (strcmp(insn[i].mnemonic, "ret") == 0) {
+                                dump_length =
+                                    insn[i].address - rip + insn_length;
+                                break;
+                        }
+                }
+
+                cs_free(insn, count);
+        } else {
+                (void)(fprintf(
+                    stderr, "Failed to disassemble memory at 0x%lx.\n", rip));
+                cs_close(&handle);
+                return EXIT_FAILURE;
+        }
+
+        cs_close(&handle);
+
         printf("Memory dump in module '%s' at RIP: 0x%016lx (Offset: 0x%lx)\n",
                module_name, rip, rip - base_address);
 
@@ -525,13 +559,13 @@ int Dump(debuggee *dbgee) {
         printf("---------------------------------------------------------------"
                "----------------------\n");
 
-        for (size_t i = 0; i < sizeof(buf); i += WORD_LENGTH) {
+        for (size_t i = 0; i < dump_length; i += WORD_LENGTH) {
                 unsigned long current_address = rip + i;
                 unsigned long offset = current_address - base_address;
                 printf("0x%016lx (0x%lx): ", current_address, offset);
 
                 for (size_t j = 0; j < WORD_LENGTH; ++j) {
-                        if (i + j < sizeof(buf)) {
+                        if (i + j < dump_length) {
                                 printf("%02x ", buf[i + j]);
                         } else {
                                 printf("   ");
@@ -539,8 +573,9 @@ int Dump(debuggee *dbgee) {
                 }
 
                 printf(" ");
+
                 for (size_t j = 0; j < WORD_LENGTH; ++j) {
-                        if (i + j < sizeof(buf)) {
+                        if (i + j < dump_length) {
                                 unsigned char c = buf[i + j];
                                 printf("%c", (c >= ASCII_PRINTABLE_MIN &&
                                               c <= ASCII_PRINTABLE_MAX)
@@ -550,6 +585,10 @@ int Dump(debuggee *dbgee) {
                 }
 
                 printf("\n");
+
+                if (i + WORD_LENGTH >= dump_length) {
+                        break;
+                }
         }
 
         printf("---------------------------------------------------------------"
