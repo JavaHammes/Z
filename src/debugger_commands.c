@@ -199,11 +199,9 @@ int handle_user_input(debugger *dbg, command_t cmd_type, // NOLINT
         }
 }
 
-int read_and_handle_user_command(debugger *dbg) { // NOLINT
+int read_and_handle_user_command(debugger *dbg) {
         char *input = NULL;
-
         char *last_command = NULL;
-        char *last_arg = NULL;
 
         linenoiseHistorySetMaxLen(LINENOISE_MAX_HISTORY_LENGTH);
         linenoiseSetCompletionCallback(completion);
@@ -219,70 +217,41 @@ int read_and_handle_user_command(debugger *dbg) { // NOLINT
                         exit(EXIT_FAILURE);
                 }
 
-                if (input[0] == '\0') {
-                        if (last_command != NULL) {
-                                command_t cmd_type =
-                                    get_command_type(last_command);
-                                handle_user_input(dbg, cmd_type, last_arg);
+                if (strcmp(input, "!!") == 0) {
+                        if (last_command) {
+                                printf("Repeating last command: %s\n",
+                                       last_command);
+                                free(input);
+                                input = strdup(last_command);
+                        } else {
+                                printf("No previous command to repeat.\n");
+                                free(input);
+                                continue;
                         }
-                        free(input);
-                        continue;
+                } else {
+                        linenoiseHistoryAdd(input);
+                        free((void *)last_command);
+                        last_command = strdup(input);
                 }
-
-                linenoiseHistoryAdd(input);
 
                 input[strcspn(input, "\n")] = '\0';
 
                 char *command = strtok(input, " ");
                 char *arg = strtok(NULL, " ");
 
-                if (command != NULL) {
-                        free(last_command);
-                        if (last_arg != NULL) {
-                            free(last_arg);
-                            last_arg = NULL;
-                        }
-
-                        last_command = strdup(command);
-                        if (last_command == NULL) {
-                                (void)(fprintf(stderr, "Memory allocation failed for "
-                                                "last_command.\n"));
-                                free(input);
-                                continue;
-                        }
-
-                        if (arg != NULL) {
-                                last_arg = strdup(arg);
-                                if (last_arg == NULL) {
-                                        (void)(fprintf(stderr,
-                                                "Memory allocation failed for "
-                                                "last_arg.\n"));
-                                        free(last_command);
-                                        last_command = NULL;
-                                        free(input);
-                                        continue;
-                                }
-                        } else {
-                                last_arg = NULL;
-                        }
-                }
-
                 command_t cmd_type = UNKNOWN;
                 if (command != NULL) {
                         cmd_type = get_command_type(command);
                 }
 
-                int handle_result = handle_user_input(dbg, cmd_type, arg);
+                if (handle_user_input(dbg, cmd_type, arg) == EXIT_SUCCESS) {
+                        free(input);
+                        break;
+                }
 
                 free(input);
-                input = NULL;
-
-                if (handle_result == DONT_PROMPT_USER_AGAIN) {
-                        continue;
-                }
         }
 
-        free(last_command);
-        free(last_arg);
+        free((void *)last_command);
         return EXIT_SUCCESS;
 }
