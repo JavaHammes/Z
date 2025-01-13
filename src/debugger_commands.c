@@ -25,6 +25,7 @@ static const command_mapping command_map[] = {
     {"break", DBG_BREAK},
     {"hbreak", DBG_HBREAK},
     {"watch", DBG_WATCH},
+    {"catch", DBG_CATCH},
     {"points", DBG_LIST_BREAKPOINTS},
     {"remove", DBG_REMOVE_BREAKPOINT},
     {"dump", DBG_DUMP},
@@ -193,6 +194,17 @@ int handle_user_input(debugger *dbg, command_t cmd_type, // NOLINT
                 }
                 if (SetWatchpoint(&dbg->dbgee, arg) != 0) {
                         printf("Failed to set watchpoint at '%s'.\n", arg);
+                }
+                return PROMPT_USER_AGAIN;
+
+        case DBG_CATCH:
+                if (arg == NULL) {
+                        printf("Usage: catch <sig_num>\n");
+                        return PROMPT_USER_AGAIN;
+                }
+                if (SetCatchpoint(&dbg->dbgee, arg) != 0) {
+                        printf("Failed to set catchpoint for signal '%s'.\n",
+                               arg);
                 }
                 return PROMPT_USER_AGAIN;
 

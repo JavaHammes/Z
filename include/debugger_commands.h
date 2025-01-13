@@ -19,6 +19,7 @@ typedef enum {
         DBG_BREAK,
         DBG_HBREAK,
         DBG_WATCH,
+        DBG_CATCH,
         DBG_LIST_BREAKPOINTS,
         DBG_REMOVE_BREAKPOINT,
         DBG_DUMP,
