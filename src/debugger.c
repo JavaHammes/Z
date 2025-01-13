@@ -127,19 +127,7 @@ int trace_debuggee(debugger *dbg) { // NOLINT
 
                 if (WIFSTOPPED(status)) {
                         int sig = WSTOPSIG(status);
-                        printf("Child %d stopped by signal %d.\n", pid, sig);
                         dbg->dbgee.state = STOPPED;
-
-                        if (sig == SIGWINCH) {
-                                printf("Ignoring Signal 28.\n");
-                                if (ptrace(PTRACE_CONT, dbg->dbgee.pid, NULL,
-                                           NULL) == -1) {
-                                        perror(
-                                            "ptrace CONT to ignore Signal 28");
-                                        return EXIT_FAILURE;
-                                }
-                                continue;
-                        }
 
                         if (main_startup_breakpoint_set == false) {
                                 unsigned long main_address =
@@ -166,16 +154,45 @@ int trace_debuggee(debugger *dbg) { // NOLINT
                                 continue;
                         }
 
-                        size_t bp_index;
-                        bool sw_bp_hit =
-                            is_software_breakpoint(&dbg->dbgee, &bp_index);
+                        size_t sw_bp_index;
+                        size_t hw_bp_index;
+                        size_t cp_index;
+                        bool breakpoint_handled = false;
 
-                        if (sw_bp_hit) {
+                        if (is_software_breakpoint(&dbg->dbgee, &sw_bp_index)) {
+                                breakpoint_handled = true;
                                 if (handle_software_breakpoint(&dbg->dbgee,
-                                                               bp_index) !=
+                                                               sw_bp_index) !=
                                     EXIT_SUCCESS) {
                                         return EXIT_FAILURE;
                                 }
+                        }
+
+                        if (is_hardware_breakpoint(&dbg->dbgee, &hw_bp_index)) {
+                                breakpoint_handled = true;
+                                if (handle_hardware_breakpoint(&dbg->dbgee,
+                                                               hw_bp_index) !=
+                                    EXIT_SUCCESS) {
+                                        return EXIT_FAILURE;
+                                }
+                        }
+
+                        if (is_catchpoint(&dbg->dbgee, &cp_index, sig)) {
+                                breakpoint_handled = true;
+                                if (handle_catchpoint(&dbg->dbgee, cp_index) !=
+                                    EXIT_SUCCESS) {
+                                        return EXIT_FAILURE;
+                                }
+                        }
+
+                        if (!breakpoint_handled) {
+                                printf("Ignoring signal %d.\n\r", sig);
+                                if (ptrace(PTRACE_CONT, dbg->dbgee.pid, NULL,
+                                           NULL) == -1) {
+                                        perror("ptrace CONT to ignore signal");
+                                        return EXIT_FAILURE;
+                                }
+                                continue;
                         }
 
                         if (read_and_handle_user_command(dbg) != EXIT_SUCCESS) {

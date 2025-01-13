@@ -1,3 +1,4 @@
+#include <signal.h>
 #include <stdio.h>
 #include <unistd.h>
 
@@ -27,6 +28,8 @@ int main(void) {
 
         printf("Mock target started with PID %d\n", getpid());
 
+        (void)(raise(SIGSEGV));
+
         int i = 3;
         while (i >= 0) {
                 print_message();
@@ -34,6 +37,7 @@ int main(void) {
                 i--;
                 increment_counter();
         }
+
 
         return 0;
 }

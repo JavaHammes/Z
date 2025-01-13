@@ -53,6 +53,7 @@ enum {
         WATCHPOINT_LEN_2_BYTES = 0x1,
         WATCHPOINT_LEN_4_BYTES = 0x3,
         WATCHPOINT_LEN_8_BYTES = 0x2,
+        NSIG = 31,
 };
 
 static inline unsigned long DR7_ENABLE_LOCAL(int bpno) {
@@ -141,6 +142,8 @@ void Help(void) {
                "<offset> for read/write access\n");
         printf("  watch &<var_name>   - Set a watchpoint on global variable "
                "<var_name> for read/write access\n");
+        printf("  catch <sig_num>     - Set a catchpoint for signal number "
+               "<sig_num>\n");
         printf(
             "  remove <idx>        - Remove the breakpoint at index <idx>\n");
         printf("---------------------------------------------------------------"
@@ -582,6 +585,41 @@ int SetWatchpoint(debuggee *dbgee, const char *arg) {
         return EXIT_SUCCESS;
 }
 
+int SetCatchpoint(debuggee *dbgee, const char *arg) {
+        int signal_number = 0;
+
+        char *endptr;
+        signal_number = (int)(strtol(arg, &endptr, DECIMAL_BASE_PARAMETER));
+        if (*endptr != '\0' || signal_number < 1 || signal_number > NSIG) {
+                (void)(fprintf(stderr, "Invalid signal number: %s\n", arg));
+                return EXIT_FAILURE;
+        }
+
+        for (size_t i = 0; i < dbgee->bp_handler->count; ++i) {
+                breakpoint *bp = &dbgee->bp_handler->breakpoints[i];
+                if (bp->bp_t == CATCHPOINT &&
+                    bp->data.cp.signal == signal_number) {
+                        (void)(fprintf(
+                            stderr,
+                            "A catchpoint for signal %d already exists.\n",
+                            signal_number));
+                        return EXIT_FAILURE;
+                }
+        }
+
+        size_t bp_index = add_catchpoint(dbgee->bp_handler, signal_number);
+        if (bp_index == (size_t)-1) {
+                (void)(fprintf(stderr,
+                               "Failed to add catchpoint for signal %d.\n",
+                               signal_number));
+                return EXIT_FAILURE;
+        }
+
+        printf("Catchpoint set for signal %d [Index: %zu]\n", signal_number,
+               bp_index);
+        return EXIT_SUCCESS;
+}
+
 int RemoveBreakpoint(debuggee *dbgee, const char *arg) {
         size_t index = strtoull(arg, NULL, DECIMAL_BASE_PARAMETER);
         if (index >= dbgee->bp_handler->count) {
@@ -672,6 +710,8 @@ int RemoveBreakpoint(debuggee *dbgee, const char *arg) {
                        "DR%d]\n",
                        bp->data.hw_bp.address, index, dr_index);
         }
+
+        // Nothing to do here for catchpoints.
 
         if (remove_breakpoint(dbgee->bp_handler, index) != 0) {
                 (void)(fprintf(stderr,
@@ -1413,6 +1453,39 @@ bool is_software_breakpoint(debuggee *dbgee, size_t *bp_index_out) {
         return false;
 }
 
+bool is_hardware_breakpoint(debuggee *dbgee, size_t *bp_index_out) {
+        unsigned long rip;
+        if (read_rip(dbgee, &rip) != 0) {
+                (void)(fprintf(stderr, "Failed to retrieve current RIP.\n"));
+                return false;
+        }
+
+        for (size_t i = 0; i < dbgee->bp_handler->count; ++i) {
+                breakpoint *bp = &dbgee->bp_handler->breakpoints[i];
+                if (bp->bp_t == HARDWARE_BP && bp->data.hw_bp.address == rip) {
+                        if (bp_index_out) {
+                                *bp_index_out = i;
+                        }
+                        return true;
+                }
+        }
+        return false;
+}
+
+bool is_catchpoint(debuggee *dbgee, size_t *bp_index_out, int signal_number) {
+        for (size_t i = 0; i < dbgee->bp_handler->count; ++i) {
+                breakpoint *bp = &dbgee->bp_handler->breakpoints[i];
+                if (bp->bp_t == CATCHPOINT &&
+                    bp->data.cp.signal == signal_number) {
+                        if (bp_index_out) {
+                                *bp_index_out = i;
+                        }
+                        return true;
+                }
+        }
+        return false;
+}
+
 int handle_software_breakpoint(debuggee *dbgee, size_t bp_index) {
         breakpoint *bp = &dbgee->bp_handler->breakpoints[bp_index];
         unsigned long address = bp->data.sw_bp.address;
@@ -1458,6 +1531,26 @@ int handle_software_breakpoint(debuggee *dbgee, size_t bp_index) {
                         return EXIT_FAILURE;
                 }
         }
+
+        printf("Software breakpoint hit '%lx'.\n", address);
+
+        return EXIT_SUCCESS;
+}
+
+int handle_hardware_breakpoint(debuggee *dbgee, size_t bp_index) {
+        breakpoint *bp = &dbgee->bp_handler->breakpoints[bp_index];
+        unsigned long address = bp->data.hw_bp.address;
+
+        printf("Hardware breakpoint hit '%lx'.\n", address);
+
+        return EXIT_SUCCESS;
+}
+
+int handle_catchpoint(debuggee *dbgee, size_t bp_index) {
+        breakpoint *bp = &dbgee->bp_handler->breakpoints[bp_index];
+        int signal_number = bp->data.cp.signal;
+
+        printf("Catchpoint '%zu' caught signal %d.\n", bp_index, signal_number);
 
         return EXIT_SUCCESS;
 }
