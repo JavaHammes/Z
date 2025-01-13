@@ -55,18 +55,60 @@ size_t add_hardware_breakpoint(breakpoint_handler *handler, uintptr_t address) {
         return handler->count - 1;
 }
 
-size_t add_catchpoint(breakpoint_handler *handler, int signal_number) {
+size_t add_catchpoint_signal(breakpoint_handler *handler, int signal_number) {
         if (handler->count == handler->capacity) {
                 alloc_new_capacity(handler);
         }
 
         breakpoint bp;
-        bp.bp_t = CATCHPOINT;
-        bp.data.cp.signal = signal_number;
+        bp.bp_t = CATCHPOINT_SIGNAL;
+        bp.data.cp_signal.signal = signal_number;
         bp.temporary = false;
 
         handler->breakpoints[handler->count++] = bp;
 
+        return handler->count - 1;
+}
+
+size_t add_catchpoint_event(breakpoint_handler *handler,
+                            const char *event_name) {
+        if (handler->count == handler->capacity) {
+                alloc_new_capacity(handler);
+        }
+
+        breakpoint_t bp_type;
+        if (strcmp(event_name, "fork") == 0) {
+                bp_type = CATCHPOINT_EVENT_FORK;
+        } else if (strcmp(event_name, "vfork") == 0) {
+                bp_type = CATCHPOINT_EVENT_VFORK;
+        } else if (strcmp(event_name, "clone") == 0) {
+                bp_type = CATCHPOINT_EVENT_CLONE;
+        } else if (strcmp(event_name, "exec") == 0) {
+                bp_type = CATCHPOINT_EVENT_EXEC;
+        } else if (strcmp(event_name, "exit") == 0) {
+                bp_type = CATCHPOINT_EVENT_EXIT;
+        }
+
+        for (size_t i = 0; i < handler->count; ++i) {
+                breakpoint *bp = &handler->breakpoints[i];
+                if (bp->bp_t == bp_type) {
+                        (void)(fprintf(stderr,
+                                       "Error: A catchpoint for event '%s' "
+                                       "already exists at index %zu.\n",
+                                       event_name, i));
+                        return (size_t)-1;
+                }
+        }
+
+        breakpoint bp;
+        bp.bp_t = bp_type;
+        strncpy(bp.data.cp_event.event_name, event_name,
+                sizeof(bp.data.cp_event.event_name) - 1);
+        bp.data.cp_event.event_name[sizeof(bp.data.cp_event.event_name) - 1] =
+            '\0';
+        bp.temporary = false;
+
+        handler->breakpoints[handler->count++] = bp;
         return handler->count - 1;
 }
 
@@ -85,40 +127,48 @@ int remove_breakpoint(breakpoint_handler *handler, size_t index) {
 }
 
 void list_breakpoints(const breakpoint_handler *handler) {
-        if (handler->count == 0) {
-                printf("No breakpoints set.\n");
-                return;
-        }
+    if (handler->count == 0) {
+        printf("No breakpoints set.\n");
+        return;
+    }
 
-        printf("Current breakpoints:\n");
-        printf("Idx\tType\t\tAddress\t\t\tDetails\n");
-        printf("---------------------------------------------------------------"
-               "\n");
+    printf("Current breakpoints and catchpoints:\n");
+    printf("Idx\tType\t\tAddress\t\t\tDetails\n");
+    printf("---------------------------------------------------------------\n");
 
-        for (size_t i = 0; i < handler->count; ++i) {
-                printf("%zu\t", i);
-                switch (handler->breakpoints[i].bp_t) {
-                case SOFTWARE_BP:
-                        printf(
-                            "Software\t0x%lx\t\tOriginal Data: 0x%02X\n",
-                            (unsigned long)handler->breakpoints[i]
-                                .data.sw_bp.address,
-                            handler->breakpoints[i].data.sw_bp.original_byte);
-                        break;
-                case HARDWARE_BP:
-                        printf("Hardware\t0x%lx\t\t\n",
-                               (unsigned long)handler->breakpoints[i]
-                                   .data.hw_bp.address);
-                        break;
-                case CATCHPOINT:
-                        printf("Catchpoint\t-\t\tSignal: %d\n",
-                               handler->breakpoints[i].data.cp.signal);
-                        break;
-                default:
-                        printf("Unknown\t\t-\t\t-\n");
-                        break;
-                }
+    for (size_t i = 0; i < handler->count; ++i) {
+        printf("%zu\t", i);
+        switch (handler->breakpoints[i].bp_t) {
+            case SOFTWARE_BP:
+                printf("Software\t0x%lx\t\tOriginal Data: 0x%02X\n",
+                       (unsigned long)handler->breakpoints[i].data.sw_bp.address,
+                       handler->breakpoints[i].data.sw_bp.original_byte);
+                break;
+
+            case HARDWARE_BP:
+                printf("Hardware\t0x%lx\t\t\n",
+                       (unsigned long)handler->breakpoints[i].data.hw_bp.address);
+                break;
+
+            case CATCHPOINT_SIGNAL:
+                printf("Catchpoint\t-\t\tSignal: %d\n",
+                       handler->breakpoints[i].data.cp_signal.signal);
+                break;
+
+            case CATCHPOINT_EVENT_FORK:
+            case CATCHPOINT_EVENT_VFORK:
+            case CATCHPOINT_EVENT_CLONE:
+            case CATCHPOINT_EVENT_EXEC:
+            case CATCHPOINT_EVENT_EXIT:
+                printf("Catchpoint\t-\t\tEvent: %s\n",
+                       handler->breakpoints[i].data.cp_event.event_name);
+                break;
+
+            default:
+                printf("Unknown\t\t-\t\t-\n");
+                break;
         }
+    }
 }
 
 void alloc_new_capacity(breakpoint_handler *handler) {

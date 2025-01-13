@@ -1,5 +1,6 @@
 #include <signal.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <unistd.h>
 
 #define LOOP_COUNT 4
@@ -30,9 +31,12 @@ int main(void) {
 
         (void)(raise(SIGSEGV));
 
+        fork();
+
         int i = 3;
         while (i >= 0) {
                 print_message();
+                fork();
                 sleep(1);
                 i--;
                 increment_counter();
