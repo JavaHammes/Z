@@ -144,6 +144,8 @@ void Help(void) {
                "<var_name> for read/write access\n");
         printf("  catch <sig_num>     - Set a catchpoint for signal number "
                "<sig_num>\n");
+        printf("  catch <event_name>  - Set a catchpoint for process events"
+                ": fork, vfork, clone, exec, exit\n");
         printf(
             "  remove <idx>        - Remove the breakpoint at index <idx>\n");
         printf("---------------------------------------------------------------"
