@@ -36,7 +36,6 @@ int main(void) {
         int i = 3;
         while (i >= 0) {
                 print_message();
-                fork();
                 sleep(1);
                 i--;
                 increment_counter();
