@@ -13,6 +13,11 @@
 #include "debugger.h"
 #include "debugger_commands.h"
 
+enum {
+        PTRACE_EVENT_SHIFT = 16,
+        PTRACE_EVENT_MASK = 0xFFFF,
+};
+
 void init_debugger(debugger *dbg, const char *debuggee_name) {
         dbg->dbgee.pid = -1;
         dbg->dbgee.name = debuggee_name;
@@ -99,8 +104,11 @@ int trace_debuggee(debugger *dbg) { // NOLINT
 
                 if (ptrace_options_set == false) {
                         if (ptrace(PTRACE_SETOPTIONS, dbg->dbgee.pid, 0,
-                                   PTRACE_O_EXITKILL | PTRACE_O_TRACEEXEC) ==
-                            -1) {
+                                   PTRACE_O_EXITKILL | PTRACE_O_TRACEEXEC |
+                                       PTRACE_O_TRACEFORK |
+                                       PTRACE_O_TRACEVFORK |
+                                       PTRACE_O_TRACECLONE |
+                                       PTRACE_O_TRACEEXIT) == -1) {
                                 perror("ptrace SETOPTIONS");
                                 dbg->dbgee.pid = -1;
                                 dbg->dbgee.state = TERMINATED;
@@ -127,6 +135,8 @@ int trace_debuggee(debugger *dbg) { // NOLINT
 
                 if (WIFSTOPPED(status)) {
                         int sig = WSTOPSIG(status);
+                        unsigned long event =
+                            (status >> PTRACE_EVENT_SHIFT) & PTRACE_EVENT_MASK;
                         dbg->dbgee.state = STOPPED;
 
                         if (main_startup_breakpoint_set == false) {
@@ -156,7 +166,7 @@ int trace_debuggee(debugger *dbg) { // NOLINT
 
                         size_t sw_bp_index;
                         size_t hw_bp_index;
-                        size_t cp_index;
+                        size_t cp_signal_index;
                         bool breakpoint_handled = false;
 
                         if (is_software_breakpoint(&dbg->dbgee, &sw_bp_index)) {
@@ -177,11 +187,36 @@ int trace_debuggee(debugger *dbg) { // NOLINT
                                 }
                         }
 
-                        if (is_catchpoint(&dbg->dbgee, &cp_index, sig)) {
+                        if (is_catchpoint_signal(&dbg->dbgee, &cp_signal_index,
+                                                 sig)) {
                                 breakpoint_handled = true;
-                                if (handle_catchpoint(&dbg->dbgee, cp_index) !=
+                                if (handle_catchpoint_signal(&dbg->dbgee,
+                                                             cp_signal_index) !=
                                     EXIT_SUCCESS) {
                                         return EXIT_FAILURE;
+                                }
+                        }
+
+                        if (event != 0) {
+                                size_t cp_event_index;
+                                if (is_catchpoint_event(
+                                        &dbg->dbgee, &cp_event_index, event)) {
+                                        breakpoint_handled = true;
+                                        if (handle_catchpoint_event(
+                                                &dbg->dbgee, cp_event_index) !=
+                                            EXIT_SUCCESS) {
+                                                return EXIT_FAILURE;
+                                        }
+                                } else {
+                                        printf("Ignoring event %lx.\n\r",
+                                               event);
+                                        if (ptrace(PTRACE_CONT, dbg->dbgee.pid,
+                                                   NULL, NULL) == -1) {
+                                                perror("ptrace CONT to ignore "
+                                                       "event");
+                                                return EXIT_FAILURE;
+                                        }
+                                        continue;
                                 }
                         }
 

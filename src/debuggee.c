@@ -144,6 +144,8 @@ void Help(void) {
                "<var_name> for read/write access\n");
         printf("  catch <sig_num>     - Set a catchpoint for signal number "
                "<sig_num>\n");
+        printf("  catch <event_name>  - Set a catchpoint for process events"
+                ": fork, vfork, clone, exec, exit\n");
         printf(
             "  remove <idx>        - Remove the breakpoint at index <idx>\n");
         printf("---------------------------------------------------------------"
@@ -585,42 +587,84 @@ int SetWatchpoint(debuggee *dbgee, const char *arg) {
         return EXIT_SUCCESS;
 }
 
-int SetCatchpoint(debuggee *dbgee, const char *arg) {
-        int signal_number = 0;
-
-        char *endptr;
-        signal_number = (int)(strtol(arg, &endptr, DECIMAL_BASE_PARAMETER));
-        if (*endptr != '\0' || signal_number < 1 || signal_number > NSIG) {
-                (void)(fprintf(stderr, "Invalid signal number: %s\n", arg));
-                return EXIT_FAILURE;
+unsigned long get_ptrace_option_from_event(const char *event_name) {
+        if (strcmp(event_name, "fork") == 0) {
+                return PTRACE_O_TRACEFORK;
         }
+        if (strcmp(event_name, "vfork") == 0) {
+                return PTRACE_O_TRACEVFORK;
+        }
+        if (strcmp(event_name, "clone") == 0) {
+                return PTRACE_O_TRACECLONE;
+        }
+        if (strcmp(event_name, "exec") == 0) {
+                return PTRACE_O_TRACEEXEC;
+        }
+        if (strcmp(event_name, "exit") == 0) {
+                return PTRACE_O_TRACEEXIT;
+        }
+        return 0;
+}
 
-        for (size_t i = 0; i < dbgee->bp_handler->count; ++i) {
-                breakpoint *bp = &dbgee->bp_handler->breakpoints[i];
-                if (bp->bp_t == CATCHPOINT &&
-                    bp->data.cp.signal == signal_number) {
+int SetCatchpoint(debuggee *dbgee, const char *arg) { // NOLINT
+        char *endptr;
+        int signal_number = (int)(strtol(arg, &endptr, DECIMAL_BASE_PARAMETER));
+        if (*endptr == '\0') {
+                if (signal_number < 1 || signal_number > NSIG) {
+                        (void)(fprintf(stderr, "Invalid signal number: %s\n",
+                                       arg));
+                        return EXIT_FAILURE;
+                }
+
+                for (size_t i = 0; i < dbgee->bp_handler->count; ++i) {
+                        breakpoint *bp = &dbgee->bp_handler->breakpoints[i];
+                        if (bp->bp_t == CATCHPOINT_SIGNAL &&
+                            bp->data.cp_signal.signal == signal_number) {
+                                (void)(fprintf(stderr,
+                                               "A catchpoint for signal %d "
+                                               "already exists.\n",
+                                               signal_number));
+                                return EXIT_FAILURE;
+                        }
+                }
+
+                size_t bp_index =
+                    add_catchpoint_signal(dbgee->bp_handler, signal_number);
+                if (bp_index == (size_t)-1) {
                         (void)(fprintf(
-                            stderr,
-                            "A catchpoint for signal %d already exists.\n",
+                            stderr, "Failed to add catchpoint for signal %d.\n",
                             signal_number));
                         return EXIT_FAILURE;
                 }
+
+                printf("Catchpoint set for signal %d [Index: %zu]\n",
+                       signal_number, bp_index);
+                return EXIT_SUCCESS;
         }
 
-        size_t bp_index = add_catchpoint(dbgee->bp_handler, signal_number);
-        if (bp_index == (size_t)-1) {
-                (void)(fprintf(stderr,
-                               "Failed to add catchpoint for signal %d.\n",
-                               signal_number));
-                return EXIT_FAILURE;
+        if (strcmp(arg, "fork") == 0 || strcmp(arg, "vfork") == 0 ||
+            strcmp(arg, "clone") == 0 || strcmp(arg, "exec") == 0 ||
+            strcmp(arg, "exit") == 0) {
+
+                size_t bp_index = add_catchpoint_event(dbgee->bp_handler, arg);
+                if (bp_index == (size_t)-1) {
+                        (void)(fprintf(
+                            stderr,
+                            "Failed to add catchpoint for event '%s'.\n", arg));
+                        return EXIT_FAILURE;
+                }
+
+                printf("Catchpoint set for event '%s' [Index: %zu]\n", arg,
+                       bp_index);
+                return EXIT_SUCCESS;
         }
 
-        printf("Catchpoint set for signal %d [Index: %zu]\n", signal_number,
-               bp_index);
-        return EXIT_SUCCESS;
+        (void)(fprintf(stderr, "Invalid catchpoint argument: %s\n", arg));
+        (void)(fprintf(stderr, "Usage: catch <signal_num> | <event_name>\n"));
+        return EXIT_FAILURE;
 }
 
-int RemoveBreakpoint(debuggee *dbgee, const char *arg) {
+int RemoveBreakpoint(debuggee *dbgee, const char *arg) { // NOLINT
         size_t index = strtoull(arg, NULL, DECIMAL_BASE_PARAMETER);
         if (index >= dbgee->bp_handler->count) {
                 (void)(fprintf(stderr, "Invalid breakpoint index: %zu\n",
@@ -630,7 +674,8 @@ int RemoveBreakpoint(debuggee *dbgee, const char *arg) {
 
         breakpoint *bp = &dbgee->bp_handler->breakpoints[index];
 
-        if (bp->bp_t == SOFTWARE_BP) {
+        switch (bp->bp_t) {
+        case SOFTWARE_BP: {
                 if (replace_sw_breakpoint(dbgee->pid, bp->data.sw_bp.address,
                                           bp->data.sw_bp.original_byte) !=
                     EXIT_SUCCESS) {
@@ -642,17 +687,26 @@ int RemoveBreakpoint(debuggee *dbgee, const char *arg) {
                 }
                 printf("Software breakpoint removed at 0x%lx [Index: %zu]\n",
                        bp->data.sw_bp.address, index);
-        } else if (bp->bp_t == HARDWARE_BP) {
+                break;
+        }
+
+        case HARDWARE_BP: {
                 unsigned long dr0;
                 unsigned long dr1;
                 unsigned long dr2;
                 unsigned long dr3;
                 unsigned long dr7;
-                if (read_debug_register(dbgee->pid, DR0_OFFSET, &dr0) != 0 ||
-                    read_debug_register(dbgee->pid, DR1_OFFSET, &dr1) != 0 ||
-                    read_debug_register(dbgee->pid, DR2_OFFSET, &dr2) != 0 ||
-                    read_debug_register(dbgee->pid, DR3_OFFSET, &dr3) != 0 ||
-                    read_debug_register(dbgee->pid, DR7_OFFSET, &dr7) != 0) {
+
+                if (read_debug_register(dbgee->pid, DR0_OFFSET, &dr0) !=
+                        EXIT_SUCCESS ||
+                    read_debug_register(dbgee->pid, DR1_OFFSET, &dr1) !=
+                        EXIT_SUCCESS ||
+                    read_debug_register(dbgee->pid, DR2_OFFSET, &dr2) !=
+                        EXIT_SUCCESS ||
+                    read_debug_register(dbgee->pid, DR3_OFFSET, &dr3) !=
+                        EXIT_SUCCESS ||
+                    read_debug_register(dbgee->pid, DR7_OFFSET, &dr7) !=
+                        EXIT_SUCCESS) {
                         (void)(fprintf(stderr,
                                        "Failed to read debug registers.\n"));
                         return EXIT_FAILURE;
@@ -692,13 +746,15 @@ int RemoveBreakpoint(debuggee *dbgee, const char *arg) {
                         return EXIT_FAILURE;
                 }
 
-                if (set_debug_register(dbgee->pid, dr_offset, 0) != 0) {
+                if (set_debug_register(dbgee->pid, dr_offset, 0) !=
+                    EXIT_SUCCESS) {
                         (void)(fprintf(stderr, "Failed to clear DR%d.\n",
                                        dr_index));
                         return EXIT_FAILURE;
                 }
 
-                if (configure_dr7(dbgee->pid, dr_index, 0, 0, false) != 0) {
+                if (configure_dr7(dbgee->pid, dr_index, 0, 0, false) !=
+                    EXIT_SUCCESS) {
                         (void)(fprintf(
                             stderr,
                             "Failed to update DR7 after clearing DR%d.\n",
@@ -706,16 +762,31 @@ int RemoveBreakpoint(debuggee *dbgee, const char *arg) {
                         return EXIT_FAILURE;
                 }
 
-                printf("Hardware breakpoint removed at 0x%lx [Index: %zu, "
-                       "DR%d]\n",
-                       bp->data.hw_bp.address, index, dr_index);
+                printf(
+                    "Hardware breakpoint removed at 0x%lx [Index: %zu, DR%d]\n",
+                    bp->data.hw_bp.address, index, dr_index);
+                break;
         }
 
-        // Nothing to do here for catchpoints.
+        case CATCHPOINT_SIGNAL:
+        case CATCHPOINT_EVENT_FORK:
+        case CATCHPOINT_EVENT_VFORK:
+        case CATCHPOINT_EVENT_CLONE:
+        case CATCHPOINT_EVENT_EXEC:
+        case CATCHPOINT_EVENT_EXIT: {
+                printf("Catchpoint removed [Index: %zu]\n", index);
 
-        if (remove_breakpoint(dbgee->bp_handler, index) != 0) {
-                (void)(fprintf(stderr,
-                               "Failed to remove breakpoint from handler.\n"));
+                if (remove_breakpoint(dbgee->bp_handler, index) !=
+                    EXIT_SUCCESS) {
+                        (void)(fprintf(
+                            stderr,
+                            "Failed to remove catchpoint from handler.\n"));
+                        return EXIT_FAILURE;
+                }
+                break;
+        }
+        default:
+                (void)(fprintf(stderr, "Unknown breakpoint type.\n"));
                 return EXIT_FAILURE;
         }
 
@@ -1472,17 +1543,47 @@ bool is_hardware_breakpoint(debuggee *dbgee, size_t *bp_index_out) {
         return false;
 }
 
-bool is_catchpoint(debuggee *dbgee, size_t *bp_index_out, int signal_number) {
+bool is_catchpoint_signal(debuggee *dbgee, size_t *bp_index_out,
+                          int signal_number) {
         for (size_t i = 0; i < dbgee->bp_handler->count; ++i) {
                 breakpoint *bp = &dbgee->bp_handler->breakpoints[i];
-                if (bp->bp_t == CATCHPOINT &&
-                    bp->data.cp.signal == signal_number) {
+                if (bp->bp_t == CATCHPOINT_SIGNAL &&
+                    bp->data.cp_signal.signal == signal_number) {
                         if (bp_index_out) {
                                 *bp_index_out = i;
                         }
                         return true;
                 }
         }
+        return false;
+}
+
+bool is_catchpoint_event(debuggee *dbgee, size_t *bp_index_out,
+                         unsigned long event_code) {
+        for (size_t i = 0; i < dbgee->bp_handler->count; ++i) {
+                breakpoint *bp = &dbgee->bp_handler->breakpoints[i];
+                if ((bp->bp_t == CATCHPOINT_EVENT_FORK &&
+                     strcmp(bp->data.cp_event.event_name, "fork") == 0 &&
+                     event_code == PTRACE_EVENT_FORK) ||
+                    (bp->bp_t == CATCHPOINT_EVENT_VFORK &&
+                     strcmp(bp->data.cp_event.event_name, "vfork") == 0 &&
+                     event_code == PTRACE_EVENT_VFORK) ||
+                    (bp->bp_t == CATCHPOINT_EVENT_CLONE &&
+                     strcmp(bp->data.cp_event.event_name, "clone") == 0 &&
+                     event_code == PTRACE_EVENT_CLONE) ||
+                    (bp->bp_t == CATCHPOINT_EVENT_EXEC &&
+                     strcmp(bp->data.cp_event.event_name, "exec") == 0 &&
+                     event_code == PTRACE_EVENT_EXEC) ||
+                    (bp->bp_t == CATCHPOINT_EVENT_EXIT &&
+                     strcmp(bp->data.cp_event.event_name, "exit") == 0 &&
+                     event_code == PTRACE_EVENT_EXIT)) {
+                        if (bp_index_out != NULL) {
+                                *bp_index_out = i;
+                        }
+                        return true;
+                }
+        }
+
         return false;
 }
 
@@ -1546,11 +1647,20 @@ int handle_hardware_breakpoint(debuggee *dbgee, size_t bp_index) {
         return EXIT_SUCCESS;
 }
 
-int handle_catchpoint(debuggee *dbgee, size_t bp_index) {
+int handle_catchpoint_signal(debuggee *dbgee, size_t bp_index) {
         breakpoint *bp = &dbgee->bp_handler->breakpoints[bp_index];
-        int signal_number = bp->data.cp.signal;
+        int signal_number = bp->data.cp_signal.signal;
 
         printf("Catchpoint '%zu' caught signal %d.\n", bp_index, signal_number);
+
+        return EXIT_SUCCESS;
+}
+
+int handle_catchpoint_event(debuggee *dbgee, size_t bp_index) {
+        breakpoint *bp = &dbgee->bp_handler->breakpoints[bp_index];
+        const char *event_name = bp->data.cp_event.event_name;
+
+        printf("Event catchpoint for '%s' triggered.\n", event_name);
 
         return EXIT_SUCCESS;
 }

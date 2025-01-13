@@ -66,10 +66,14 @@ int replace_sw_breakpoint(pid_t pid, uint64_t addr, uint64_t old_byte);
 bool breakpoint_exists(const debuggee *dbgee, unsigned long address);
 bool is_software_breakpoint(debuggee *dbgee, size_t *bp_index_out);
 bool is_hardware_breakpoint(debuggee *dbgee, size_t *bp_index_out);
-bool is_catchpoint(debuggee *dbgee, size_t *bp_index_out, int signal_number);
+bool is_catchpoint_signal(debuggee *dbgee, size_t *bp_index_out,
+                          int signal_number);
+bool is_catchpoint_event(debuggee *dbgee, size_t *bp_index_out,
+                         unsigned long event_code);
 int handle_software_breakpoint(debuggee *dbgee, size_t bp_index);
 int handle_hardware_breakpoint(debuggee *dbgee, size_t bp_index);
-int handle_catchpoint(debuggee *dbgee, size_t bp_index);
+int handle_catchpoint_signal(debuggee *dbgee, size_t bp_index);
+int handle_catchpoint_event(debuggee *dbgee, size_t bp_index);
 int remove_all_breakpoints(debuggee *dbgee);
 
 bool is_call_instruction(debuggee *dbgee, unsigned long rip);

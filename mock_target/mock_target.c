@@ -1,5 +1,6 @@
 #include <signal.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <unistd.h>
 
 #define LOOP_COUNT 4
@@ -29,6 +30,8 @@ int main(void) {
         printf("Mock target started with PID %d\n", getpid());
 
         (void)(raise(SIGSEGV));
+
+        fork();
 
         int i = 3;
         while (i >= 0) {
