@@ -2,6 +2,10 @@
 #include <stdint.h>
 #include <stdio.h>
 
+enum {
+        EVENT_NAME_SIZE = 16,
+};
+
 typedef enum {
         SOFTWARE_BP,
         HARDWARE_BP,
@@ -11,6 +15,7 @@ typedef enum {
         CATCHPOINT_EVENT_CLONE,
         CATCHPOINT_EVENT_EXEC,
         CATCHPOINT_EVENT_EXIT,
+        CATCHPOINT_EVENT_INVALID,
 } breakpoint_t;
 
 typedef struct {
@@ -28,7 +33,7 @@ typedef struct {
 } catchpoint_signal;
 
 typedef struct {
-        char event_name[16];
+        char event_name[EVENT_NAME_SIZE];
 } catchpoint_event;
 
 typedef union {

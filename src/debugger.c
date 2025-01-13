@@ -13,7 +13,6 @@
 #include "debugger.h"
 #include "debugger_commands.h"
 
-
 enum {
         PTRACE_EVENT_SHIFT = 16,
         PTRACE_EVENT_MASK = 0xFFFF,
@@ -136,7 +135,8 @@ int trace_debuggee(debugger *dbg) { // NOLINT
 
                 if (WIFSTOPPED(status)) {
                         int sig = WSTOPSIG(status);
-                        unsigned long event = (status >> PTRACE_EVENT_SHIFT) & PTRACE_EVENT_MASK;
+                        unsigned long event =
+                            (status >> PTRACE_EVENT_SHIFT) & PTRACE_EVENT_MASK;
                         dbg->dbgee.state = STOPPED;
 
                         if (main_startup_breakpoint_set == false) {
@@ -208,10 +208,12 @@ int trace_debuggee(debugger *dbg) { // NOLINT
                                                 return EXIT_FAILURE;
                                         }
                                 } else {
-                                        printf("Ignoring event %lx.\n\r", event);
-                                        if (ptrace(PTRACE_CONT, dbg->dbgee.pid, NULL,
-                                                   NULL) == -1) {
-                                                perror("ptrace CONT to ignore event");
+                                        printf("Ignoring event %lx.\n\r",
+                                               event);
+                                        if (ptrace(PTRACE_CONT, dbg->dbgee.pid,
+                                                   NULL, NULL) == -1) {
+                                                perror("ptrace CONT to ignore "
+                                                       "event");
                                                 return EXIT_FAILURE;
                                         }
                                         continue;
