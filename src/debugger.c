@@ -13,11 +13,6 @@
 #include "debugger.h"
 #include "debugger_commands.h"
 
-enum {
-        PTRACE_EVENT_SHIFT = 16,
-        PTRACE_EVENT_MASK = 0xFFFF,
-};
-
 void init_debugger(debugger *dbg, const char *debuggee_name) {
         dbg->dbgee.pid = -1;
         dbg->dbgee.name = debuggee_name;
@@ -220,7 +215,8 @@ int trace_debuggee(debugger *dbg) { // NOLINT
                                 }
                         }
 
-                        if (!breakpoint_handled) {
+                        if (!breakpoint_handled &&
+                            dbg->dbgee.state != STOPPED) {
                                 printf("Ignoring signal %d.\n\r", sig);
                                 if (ptrace(PTRACE_CONT, dbg->dbgee.pid, NULL,
                                            NULL) == -1) {

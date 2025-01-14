@@ -55,6 +55,22 @@ size_t add_hardware_breakpoint(breakpoint_handler *handler, uintptr_t address) {
         return handler->count - 1;
 }
 
+
+size_t add_watchpoint(breakpoint_handler *handler, uintptr_t address) {
+        if (handler->count == handler->capacity) {
+                alloc_new_capacity(handler);
+        }
+
+        breakpoint bp;
+        bp.bp_t = WATCHPOINT;
+        bp.data.wp.address = address;
+        bp.temporary = false;
+
+        handler->breakpoints[handler->count++] = bp;
+
+        return handler->count - 1;
+}
+
 size_t add_catchpoint_signal(breakpoint_handler *handler, int signal_number) {
         if (handler->count == handler->capacity) {
                 alloc_new_capacity(handler);
@@ -133,7 +149,7 @@ void list_breakpoints(const breakpoint_handler *handler) {
                 return;
         }
 
-        printf("Current breakpoints and catchpoints:\n");
+        printf("Current breakpoints:\n");
         printf("Idx\tType\t\tAddress\t\t\tDetails\n");
         printf("---------------------------------------------------------------"
                "\n");
@@ -168,6 +184,10 @@ void list_breakpoints(const breakpoint_handler *handler) {
                         printf(
                             "Catchpoint\t-\t\tEvent: %s\n",
                             handler->breakpoints[i].data.cp_event.event_name);
+                        break;
+
+                case WATCHPOINT:
+                        printf("WATCHPOINT\t0x%lx\t\t(r/w)\n", (unsigned long)handler->breakpoints[i].data.hw_bp.address);
                         break;
 
                 default:

@@ -111,11 +111,12 @@ int handle_user_input(debugger *dbg, command_t cmd_type, // NOLINT
                 if (Step(&dbg->dbgee) != 0) {
                         printf("Failed to single step.\n");
                 }
-                return DONT_PROMPT_USER_AGAIN;
+                return PROMPT_USER_AGAIN;
 
         case DBG_STEP_OVER:
                 if (StepOver(&dbg->dbgee) != 0) {
                         printf("Failed to step over.\n");
+                        return PROMPT_USER_AGAIN;
                 }
                 return DONT_PROMPT_USER_AGAIN;
 
@@ -144,7 +145,7 @@ int handle_user_input(debugger *dbg, command_t cmd_type, // NOLINT
                 if (Jump(&dbg->dbgee, arg) != 0) {
                         printf("Failed to jump to '%s'.\n", arg);
                 }
-                return DONT_PROMPT_USER_AGAIN;
+                return PROMPT_USER_AGAIN;
 
         case DBG_TRACE:
                 if (arg == NULL) {

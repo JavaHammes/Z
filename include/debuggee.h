@@ -7,6 +7,11 @@
 #include "breakpoint_handler.h"
 #include "symtab.h"
 
+enum {
+        PTRACE_EVENT_SHIFT = 16,
+        PTRACE_EVENT_MASK = 0xFFFF,
+};
+
 typedef enum {
         IDLE = 0,
         RUNNING = 1,
@@ -85,4 +90,5 @@ unsigned long get_module_base_address(pid_t pid, unsigned long rip,
 unsigned long get_symbol_offset(debuggee *dbgee, const char *symbol_name);
 unsigned long get_main_absolute_address(debuggee *dbgee);
 
-bool step_and_wait(debuggee *dbgee);
+int step_and_wait(debuggee *dbgee);
+int step_replaced_instruction(debuggee *dbgee);
