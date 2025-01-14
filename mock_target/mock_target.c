@@ -29,10 +29,6 @@ int main(void) {
 
         printf("Mock target started with PID %d\n", getpid());
 
-        (void)(raise(SIGSEGV));
-
-        fork();
-
         int i = 3;
         while (i >= 0) {
                 print_message();

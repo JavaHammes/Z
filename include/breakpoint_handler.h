@@ -16,6 +16,7 @@ typedef enum {
         CATCHPOINT_EVENT_EXEC,
         CATCHPOINT_EVENT_EXIT,
         CATCHPOINT_EVENT_INVALID,
+        WATCHPOINT,
 } breakpoint_t;
 
 typedef struct {
@@ -27,6 +28,10 @@ typedef struct {
 typedef struct {
         uintptr_t address;
 } hardware_breakpoint;
+
+typedef struct {
+        uintptr_t address;
+} watchpoint;
 
 typedef struct {
         int signal;
@@ -41,6 +46,7 @@ typedef union {
         hardware_breakpoint hw_bp;
         catchpoint_signal cp_signal;
         catchpoint_event cp_event;
+        watchpoint wp;
 } breakpoint_data;
 
 typedef struct {
@@ -60,6 +66,7 @@ void free_breakpoint_handler(breakpoint_handler *handler);
 size_t add_software_breakpoint(breakpoint_handler *handler, uintptr_t address,
                                uint8_t original_byte);
 size_t add_hardware_breakpoint(breakpoint_handler *handler, uintptr_t address);
+size_t add_watchpoint(breakpoint_handler *handler, uintptr_t address);
 size_t add_catchpoint_signal(breakpoint_handler *handler, int signal_number);
 size_t add_catchpoint_event(breakpoint_handler *handler, const char *event);
 int remove_breakpoint(breakpoint_handler *handler, size_t index);

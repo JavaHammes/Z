@@ -114,6 +114,10 @@ void Help(void) {
         printf("  skip <n>            - Advances instruction pointer by <n> "
                "instructions\n");
         printf("  jump <addr>         - Execute until <addr>\n");
+        printf(
+            "  jump *<offset>      - Execute until base_address + <offset>\n");
+        printf(
+            "  jump &<func_name>   - Execute until base_address + <offset>\n");
         printf("  trace <addr>        - Trace execution starting at <addr>\n");
         printf("  trace *<offset>     - Trace execution starting at "
                "base_address + <offset>\n");
@@ -145,7 +149,7 @@ void Help(void) {
         printf("  catch <sig_num>     - Set a catchpoint for signal number "
                "<sig_num>\n");
         printf("  catch <event_name>  - Set a catchpoint for process events"
-                ": fork, vfork, clone, exec, exit\n");
+               ": fork, vfork, clone, exec, exit\n");
         printf(
             "  remove <idx>        - Remove the breakpoint at index <idx>\n");
         printf("---------------------------------------------------------------"
@@ -224,40 +228,70 @@ int Continue(debuggee *dbgee) {
         return EXIT_SUCCESS;
 }
 
-int Skip(debuggee *dbgee, const char *arg) {
-        int n = (int)strtol(arg, NULL, DECIMAL_BASE_PARAMETER);
-        if (n <= 0) {
-                (void)(fprintf(stderr,
-                               "Invalid number of instructions to skip: %s\n",
-                               arg));
+int Step(debuggee *dbgee) {
+        if (ptrace(PTRACE_SINGLESTEP, dbgee->pid, NULL, NULL) == -1) {
+                perror("ptrace SINGLESTEP");
                 return EXIT_FAILURE;
         }
 
-        for (int i = 0; i < n; i++) {
-                if (!step_and_wait(dbgee)) {
-                        (void)(fprintf(stderr, "Failed to single step.\n"));
-                        return EXIT_FAILURE;
-                }
-        }
+        // Not setting debuggee state back to RUNNING
 
-        printf("Skipped %d instructions.\n", n);
         return EXIT_SUCCESS;
 }
 
-int Jump(debuggee *dbgee, const char *arg) {
-        uintptr_t address = 0;
-        if (!parse_breakpoint_argument(dbgee, arg, &address)) {
+int StepOver(debuggee *dbgee) {
+        unsigned long rip;
+        if (read_rip(dbgee, &rip) != 0) {
+                (void)(fprintf(stderr, "Failed to read RIP for StepOver.\n"));
                 return EXIT_FAILURE;
         }
 
-        if (address == 0) {
-                (void)(fprintf(stderr, "Invalid address: %s\n", arg));
+        bool is_call = is_call_instruction(dbgee, rip);
+        if (is_call) {
+
+                // Set temporary breakpoint at the instruction after the call
+                // instruction. On x86_64 we know that we need to add 5. 1 byte
+                // for oppcode and 4 for the relative offset.
+                unsigned long return_addr = rip + NEXT_INSTRUCTION_OFFSET;
+
+                if (set_temp_sw_breakpoint(dbgee, return_addr) !=
+                    EXIT_SUCCESS) {
+                        (void)(fprintf(stderr, "Failed to set temporary "
+                                               "breakpoint for StepOver.\n"));
+                        return EXIT_FAILURE;
+                }
+
+                if (ptrace(PTRACE_CONT, dbgee->pid, NULL, NULL) == -1) {
+                        perror("ptrace CONT");
+                        return EXIT_FAILURE;
+                }
+                dbgee->state = RUNNING;
+
+                return EXIT_SUCCESS;
+        }
+
+        (void)(fprintf(
+            stderr,
+            "Failed to set step over. Current instruction is not callable.\n"));
+        return EXIT_FAILURE;
+}
+
+int StepOut(debuggee *dbgee) {
+        unsigned long return_address;
+
+        if (get_return_address(dbgee, &return_address) != 0) {
+                (void)fprintf(
+                    stderr, "Failed to retrieve return address for StepOut.\n");
                 return EXIT_FAILURE;
         }
 
-        if (set_temp_sw_breakpoint(dbgee, address) != EXIT_SUCCESS) {
-                (void)(fprintf(stderr, "Failed to set temporary "
-                                       "breakpoint for StepOver.\n"));
+        printf("Return address found at 0x%lx\n", return_address);
+
+        if (set_temp_sw_breakpoint(dbgee, return_address) != EXIT_SUCCESS) {
+                (void)fprintf(stderr,
+                              "Failed to set temporary breakpoint at return "
+                              "address 0x%lx.\n",
+                              return_address);
                 return EXIT_FAILURE;
         }
 
@@ -270,61 +304,115 @@ int Jump(debuggee *dbgee, const char *arg) {
         return EXIT_SUCCESS;
 }
 
+int Skip(debuggee *dbgee, const char *arg) {
+        int n = (int)strtol(arg, NULL, DECIMAL_BASE_PARAMETER);
+        if (n <= 0) {
+                (void)(fprintf(stderr,
+                               "Invalid number of instructions to skip: %s\n",
+                               arg));
+                return EXIT_FAILURE;
+        }
+
+        for (int i = 0; i < n; i++) {
+                if (step_and_wait(dbgee) != EXIT_SUCCESS) {
+                        (void)(fprintf(stderr, "Failed to single step.\n"));
+                        return EXIT_FAILURE;
+                }
+        }
+
+        return EXIT_SUCCESS;
+}
+
+int Jump(debuggee *dbgee, const char *arg) { // NOLINT
+        uintptr_t address = 0;
+        if (!parse_breakpoint_argument(dbgee, arg, &address)) {
+                return EXIT_FAILURE;
+        }
+
+        if (address == 0) {
+                (void)(fprintf(stderr, "Invalid address: %s\n", arg));
+                return EXIT_FAILURE;
+        }
+
+        if (set_temp_sw_breakpoint(dbgee, address) != EXIT_SUCCESS) {
+                (void)(fprintf(stderr,
+                               "Failed to set temporary breakpoint at 0x%lx.\n",
+                               address));
+                return EXIT_FAILURE;
+        }
+
+        bool jump_complete = false;
+
+        while (!jump_complete) {
+                if (ptrace(PTRACE_CONT, dbgee->pid, NULL, NULL) == -1) {
+                        perror("ptrace CONT");
+                        return EXIT_FAILURE;
+                }
+
+                int wait_status;
+                if (waitpid(dbgee->pid, &wait_status, 0) == -1) {
+                        perror("waitpid");
+                        return EXIT_FAILURE;
+                }
+
+                if (WIFEXITED(wait_status)) {
+                        printf("Debuggee exited with status %d during jump.\n",
+                               WEXITSTATUS(wait_status));
+                        dbgee->state = TERMINATED;
+                        return EXIT_FAILURE;
+                }
+
+                if (WIFSIGNALED(wait_status)) {
+                        printf(
+                            "Debuggee was killed by signal %d during jump.\n",
+                            WTERMSIG(wait_status));
+                        dbgee->state = TERMINATED;
+                        return EXIT_FAILURE;
+                }
+
+                if (WIFSTOPPED(wait_status)) {
+                        int sig = WSTOPSIG(wait_status);
+                        if (sig == SIGTRAP) {
+                                size_t bp_index_hit;
+                                bool sw_bp_hit = is_software_breakpoint(
+                                    dbgee, &bp_index_hit);
+
+                                if (sw_bp_hit) {
+                                        unsigned long rip;
+                                        if (read_rip(dbgee, &rip) != 0) {
+                                                return EXIT_FAILURE;
+                                        }
+
+                                        if (handle_software_breakpoint(
+                                                dbgee, bp_index_hit) !=
+                                            EXIT_SUCCESS) {
+                                                return EXIT_FAILURE;
+                                        }
+
+                                        if (rip - 1 == address) {
+                                                printf("Jump completed to "
+                                                       "address 0x%lx.\n",
+                                                       address);
+                                                jump_complete = true;
+                                        }
+                                }
+
+                                // Ignore all other signals
+                        }
+                }
+        }
+
+        return EXIT_SUCCESS;
+}
+
 int Trace(debuggee *dbgee, const char *arg) { // NOLINT
         if (Jump(dbgee, arg) != EXIT_SUCCESS) {
                 (void)(fprintf(stderr, "Failed to jump to %s.\n", arg));
                 return EXIT_FAILURE;
         }
 
-        int wait_status;
-        if (waitpid(dbgee->pid, &wait_status, 0) == -1) {
-                perror("waitpid");
-                return EXIT_FAILURE;
-        }
-
-        if (WIFEXITED(wait_status)) {
-                printf("Debuggee exited with status %d during jump.\n",
-                       WEXITSTATUS(wait_status));
-                dbgee->state = TERMINATED;
-                return EXIT_FAILURE;
-        }
-
-        if (WIFSIGNALED(wait_status)) {
-                printf("Debuggee was killed by signal %d during jump.\n",
-                       WTERMSIG(wait_status));
-                dbgee->state = TERMINATED;
-                return EXIT_FAILURE;
-        }
-
-        if (WIFSTOPPED(wait_status)) {
-                int sig = WSTOPSIG(wait_status);
-                if (sig != SIGTRAP) {
-                        (void)(fprintf(
-                            stderr,
-                            "Received unexpected signal %d during jump.\n",
-                            sig));
-                        return EXIT_FAILURE;
-                }
-
-                size_t bp_index;
-                bool sw_bp_hit = is_software_breakpoint(dbgee, &bp_index);
-
-                if (sw_bp_hit) {
-                        if (handle_software_breakpoint(dbgee, bp_index) !=
-                            EXIT_SUCCESS) {
-                                return EXIT_FAILURE;
-                        }
-                }
-        } else {
-                (void)(fprintf(
-                    stderr,
-                    "Debuggee did not stop as expected during jump.\n"));
-                return EXIT_FAILURE;
-        }
-        dbgee->state = STOPPED;
-
-        while (1) {
-                if (!step_and_wait(dbgee)) {
+        while (true) {
+                if (step_and_wait(dbgee) != EXIT_SUCCESS) {
                         (void)(fprintf(stderr, "Failed to single step.\n"));
                         return EXIT_FAILURE;
                 }
@@ -575,7 +663,7 @@ int SetWatchpoint(debuggee *dbgee, const char *arg) {
                 return EXIT_FAILURE;
         }
 
-        size_t bp_index = add_hardware_breakpoint(dbgee->bp_handler, address);
+        size_t bp_index = add_watchpoint(dbgee->bp_handler, address);
         if (bp_index == (size_t)-1) {
                 (void)(fprintf(stderr,
                                "Failed to add watchpoint to handler.\n"));
@@ -690,6 +778,7 @@ int RemoveBreakpoint(debuggee *dbgee, const char *arg) { // NOLINT
                 break;
         }
 
+        case WATCHPOINT:
         case HARDWARE_BP: {
                 unsigned long dr0;
                 unsigned long dr1;
@@ -773,20 +862,17 @@ int RemoveBreakpoint(debuggee *dbgee, const char *arg) { // NOLINT
         case CATCHPOINT_EVENT_VFORK:
         case CATCHPOINT_EVENT_CLONE:
         case CATCHPOINT_EVENT_EXEC:
-        case CATCHPOINT_EVENT_EXIT: {
+        case CATCHPOINT_EVENT_EXIT:
                 printf("Catchpoint removed [Index: %zu]\n", index);
-
-                if (remove_breakpoint(dbgee->bp_handler, index) !=
-                    EXIT_SUCCESS) {
-                        (void)(fprintf(
-                            stderr,
-                            "Failed to remove catchpoint from handler.\n"));
-                        return EXIT_FAILURE;
-                }
                 break;
-        }
         default:
                 (void)(fprintf(stderr, "Unknown breakpoint type.\n"));
+                return EXIT_FAILURE;
+        }
+
+        if (remove_breakpoint(dbgee->bp_handler, index) != EXIT_SUCCESS) {
+                (void)(fprintf(stderr,
+                               "Failed to remove catchpoint from handler.\n"));
                 return EXIT_FAILURE;
         }
 
@@ -963,78 +1049,6 @@ int Disassemble(debuggee *dbgee) {
         }
 
         cs_close(&handle);
-
-        return EXIT_SUCCESS;
-}
-
-int Step(debuggee *dbgee) {
-        if (ptrace(PTRACE_SINGLESTEP, dbgee->pid, NULL, NULL) == -1) {
-                perror("ptrace SINGLESTEP");
-                return EXIT_FAILURE;
-        }
-        dbgee->state = RUNNING;
-
-        return EXIT_SUCCESS;
-}
-
-int StepOver(debuggee *dbgee) {
-        unsigned long rip;
-        if (read_rip(dbgee, &rip) != 0) {
-                (void)(fprintf(stderr, "Failed to read RIP for StepOver.\n"));
-                return EXIT_FAILURE;
-        }
-
-        bool is_call = is_call_instruction(dbgee, rip);
-        if (is_call) {
-
-                // Set temporary breakpoint at the instruction after the call
-                // instruction. On x86_64 we know that we need to add 5. 1 byte
-                // for oppcode and 4 for the relative offset.
-                unsigned long return_addr = rip + NEXT_INSTRUCTION_OFFSET;
-
-                if (set_temp_sw_breakpoint(dbgee, return_addr) !=
-                    EXIT_SUCCESS) {
-                        (void)(fprintf(stderr, "Failed to set temporary "
-                                               "breakpoint for StepOver.\n"));
-                        return EXIT_FAILURE;
-                }
-
-                if (ptrace(PTRACE_CONT, dbgee->pid, NULL, NULL) == -1) {
-                        perror("ptrace CONT");
-                        return EXIT_FAILURE;
-                }
-                dbgee->state = RUNNING;
-
-                return EXIT_SUCCESS;
-        }
-
-        return Step(dbgee);
-}
-
-int StepOut(debuggee *dbgee) {
-        unsigned long return_address;
-
-        if (get_return_address(dbgee, &return_address) != 0) {
-                (void)fprintf(
-                    stderr, "Failed to retrieve return address for StepOut.\n");
-                return EXIT_FAILURE;
-        }
-
-        printf("Return address found at 0x%lx\n", return_address);
-
-        if (set_temp_sw_breakpoint(dbgee, return_address) != EXIT_SUCCESS) {
-                (void)fprintf(stderr,
-                              "Failed to set temporary breakpoint at return "
-                              "address 0x%lx.\n",
-                              return_address);
-                return EXIT_FAILURE;
-        }
-
-        if (ptrace(PTRACE_CONT, dbgee->pid, NULL, NULL) == -1) {
-                perror("ptrace CONT");
-                return EXIT_FAILURE;
-        }
-        dbgee->state = RUNNING;
 
         return EXIT_SUCCESS;
 }
@@ -1375,7 +1389,9 @@ bool is_valid_address(debuggee *dbgee, unsigned long addr) {
                 }
 
                 if (addr >= start && addr < end) {
-                        if (strchr(perms, 'x') != NULL) {
+                        if (strchr(perms, 'x') != NULL ||
+                            strchr(perms, 'r') != NULL ||
+                            strchr(perms, 'w') != NULL) {
                                 valid = true;
                         }
                         break;
@@ -1608,11 +1624,6 @@ int handle_software_breakpoint(debuggee *dbgee, size_t bp_index) {
                 return EXIT_FAILURE;
         }
 
-        if (!step_and_wait(dbgee)) {
-                (void)(fprintf(stderr, "Failed to single step.\n"));
-                return EXIT_FAILURE;
-        }
-
         if (bp->temporary) {
                 if (remove_breakpoint(dbgee->bp_handler, bp_index) != 0) {
                         (void)(fprintf(
@@ -1622,6 +1633,11 @@ int handle_software_breakpoint(debuggee *dbgee, size_t bp_index) {
                         return EXIT_FAILURE;
                 }
         } else {
+                if (step_replaced_instruction(dbgee) != EXIT_SUCCESS) {
+                        (void)(fprintf(stderr, "Failed to single step.\n"));
+                        return EXIT_FAILURE;
+                }
+
                 uint64_t original_data;
                 if (!set_sw_breakpoint(dbgee->pid, address, &original_data)) {
                         (void)(fprintf(
@@ -1902,30 +1918,113 @@ unsigned long get_main_absolute_address(debuggee *dbgee) {
         return main_absolute;
 }
 
-bool step_and_wait(debuggee *dbgee) {
+int step_and_wait(debuggee *dbgee) { // NOLINT
+        if (Step(dbgee) != EXIT_SUCCESS) {
+                (void)(fprintf(stderr, "Failed to single step.\n"));
+                return EXIT_FAILURE;
+        }
+
+        int status;
+        if (waitpid(dbgee->pid, &status, 0) == -1) {
+                perror("waitpid");
+                return EXIT_FAILURE;
+        }
+
+        if (WIFEXITED(status)) {
+                printf("Debuggee %d exited with status %d.\n", dbgee->pid,
+                       WEXITSTATUS(status));
+                dbgee->state = TERMINATED;
+                return EXIT_FAILURE;
+        }
+
+        if (WIFSIGNALED(status)) {
+                printf("Debuggee %d was killed by signal %d.\n", dbgee->pid,
+                       WTERMSIG(status));
+                dbgee->state = TERMINATED;
+                return EXIT_FAILURE;
+        }
+
+        if (WIFSTOPPED(status)) {
+                int sig = WSTOPSIG(status);
+                unsigned long event =
+                    (status >> PTRACE_EVENT_SHIFT) & PTRACE_EVENT_MASK;
+
+                size_t sw_bp_index;
+                size_t hw_bp_index;
+                size_t cp_signal_index;
+                bool breakpoint_handled = false;
+
+                if (is_software_breakpoint(dbgee, &sw_bp_index)) {
+                        breakpoint_handled = true;
+                        if (handle_software_breakpoint(dbgee, sw_bp_index) !=
+                            EXIT_SUCCESS) {
+                                return EXIT_FAILURE;
+                        }
+                }
+
+                if (is_hardware_breakpoint(dbgee, &hw_bp_index)) {
+                        breakpoint_handled = true;
+                        if (handle_hardware_breakpoint(dbgee, hw_bp_index) !=
+                            EXIT_SUCCESS) {
+                                return EXIT_FAILURE;
+                        }
+                }
+
+                if (is_catchpoint_signal(dbgee, &cp_signal_index, sig)) {
+                        breakpoint_handled = true;
+                        if (handle_catchpoint_signal(dbgee, cp_signal_index) !=
+                            EXIT_SUCCESS) {
+                                return EXIT_FAILURE;
+                        }
+                }
+
+                if (event != 0) {
+                        size_t cp_event_index;
+                        if (is_catchpoint_event(dbgee, &cp_event_index,
+                                                event)) {
+                                breakpoint_handled = true;
+                                if (handle_catchpoint_event(dbgee,
+                                                            cp_event_index) !=
+                                    EXIT_SUCCESS) {
+                                        return EXIT_FAILURE;
+                                }
+                        } else {
+                                printf("Ignoring event %lx.\n\r", event);
+                        }
+                }
+
+                if (!breakpoint_handled && dbgee->state != STOPPED) {
+                        printf("Ignoring signal %d.\n\r", sig);
+                }
+        }
+
+        return EXIT_SUCCESS;
+}
+
+int step_replaced_instruction(debuggee *dbgee) {
         if (Step(dbgee) != EXIT_SUCCESS) {
                 (void)(fprintf(stderr, "Failed to execute single step.\n"));
-                return false;
+                return EXIT_FAILURE;
         }
 
         int wait_status;
         if (waitpid(dbgee->pid, &wait_status, 0) == -1) {
                 perror("waitpid");
-                return false;
+                return EXIT_FAILURE;
         }
 
         if (WIFEXITED(wait_status)) {
                 printf("Debuggee exited with status %d during single step.\n",
                        WEXITSTATUS(wait_status));
                 dbgee->state = TERMINATED;
-                return false;
+                return EXIT_FAILURE;
         }
 
         if (WIFSIGNALED(wait_status)) {
                 printf("Debuggee was killed by signal %d during single step.\n",
                        WTERMSIG(wait_status));
                 dbgee->state = TERMINATED;
-                return false;
+                return EXIT_FAILURE;
         }
 
         if (WIFSTOPPED(wait_status)) {
@@ -1935,14 +2034,14 @@ bool step_and_wait(debuggee *dbgee) {
                                        "Received unexpected signal %d during "
                                        "single step.\n",
                                        sig));
-                        return false;
+                        return EXIT_FAILURE;
                 }
         } else {
                 (void)(fprintf(
                     stderr,
                     "Debuggee did not stop as expected during single step.\n"));
-                return false;
+                return EXIT_FAILURE;
         }
 
-        return true;
+        return EXIT_SUCCESS;
 }
