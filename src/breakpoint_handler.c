@@ -55,7 +55,6 @@ size_t add_hardware_breakpoint(breakpoint_handler *handler, uintptr_t address) {
         return handler->count - 1;
 }
 
-
 size_t add_watchpoint(breakpoint_handler *handler, uintptr_t address) {
         if (handler->count == handler->capacity) {
                 alloc_new_capacity(handler);
@@ -166,7 +165,7 @@ void list_breakpoints(const breakpoint_handler *handler) {
                         break;
 
                 case HARDWARE_BP:
-                        printf("Hardware\t0x%lx\t\t\n",
+                        printf("Hardware\t0x%lx\t\t(x)\n",
                                (unsigned long)handler->breakpoints[i]
                                    .data.hw_bp.address);
                         break;
@@ -187,7 +186,9 @@ void list_breakpoints(const breakpoint_handler *handler) {
                         break;
 
                 case WATCHPOINT:
-                        printf("WATCHPOINT\t0x%lx\t\t(r/w)\n", (unsigned long)handler->breakpoints[i].data.hw_bp.address);
+                        printf("Watchpoint\t0x%lx\t\t(r/w)\n",
+                               (unsigned long)handler->breakpoints[i]
+                                   .data.hw_bp.address);
                         break;
 
                 default:

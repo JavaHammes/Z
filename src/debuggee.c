@@ -870,11 +870,9 @@ int RemoveBreakpoint(debuggee *dbgee, const char *arg) { // NOLINT
                 return EXIT_FAILURE;
         }
 
-        if (remove_breakpoint(dbgee->bp_handler, index) !=
-            EXIT_SUCCESS) {
-                (void)(fprintf(
-                    stderr,
-                    "Failed to remove catchpoint from handler.\n"));
+        if (remove_breakpoint(dbgee->bp_handler, index) != EXIT_SUCCESS) {
+                (void)(fprintf(stderr,
+                               "Failed to remove catchpoint from handler.\n"));
                 return EXIT_FAILURE;
         }
 
@@ -1391,8 +1389,10 @@ bool is_valid_address(debuggee *dbgee, unsigned long addr) {
                 }
 
                 if (addr >= start && addr < end) {
-                        if (strchr(perms, 'x') != NULL || strchr(perms, 'r') != NULL || strchr(perms, 'w') != NULL) {
-                            valid = true;
+                        if (strchr(perms, 'x') != NULL ||
+                            strchr(perms, 'r') != NULL ||
+                            strchr(perms, 'w') != NULL) {
+                                valid = true;
                         }
                         break;
                 }
