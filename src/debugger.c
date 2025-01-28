@@ -1,5 +1,7 @@
 #include <errno.h>
 #include <fcntl.h>
+#include <libgen.h>
+#include <limits.h>
 #include <signal.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -64,6 +66,12 @@ int start_debuggee(debugger *dbg) {
         }
 
         if (pid == 0) {
+                if (setenv("LD_PRELOAD", "./bin/libptrace_intercept.so", 1) ==
+                    -1) {
+                        perror("setenv");
+                        exit(EXIT_FAILURE);
+                }
+
                 if (ptrace(PTRACE_TRACEME, 0, NULL, NULL) == -1) {
                         perror("ptrace");
                         exit(EXIT_FAILURE);

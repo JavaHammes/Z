@@ -7,6 +7,7 @@ project(
 
 set(SRC_DIR "${CMAKE_SOURCE_DIR}/src")
 set(INCLUDE_DIR "${CMAKE_SOURCE_DIR}/include")
+set(LIB_DIR "${CMAKE_SOURCE_DIR}/lib")
 set(TESTS_DIR "${CMAKE_SOURCE_DIR}/tests")
 set(BIN_DIR "${CMAKE_SOURCE_DIR}/bin")
 set(MOCK_TARGET_DIR "${CMAKE_SOURCE_DIR}/mock_target")
@@ -52,17 +53,17 @@ target_link_libraries(z_lib PUBLIC
 )
 
 add_library(linenoise STATIC
-    ${CMAKE_CURRENT_SOURCE_DIR}/lib/linenoise/linenoise.c
+    ${LIB_DIR}/linenoise/linenoise.c
 )
 
 target_include_directories(linenoise PUBLIC
-    ${CMAKE_CURRENT_SOURCE_DIR}/lib/linenoise
+    ${LIB_DIR}/linenoise
 )
 
 target_link_libraries(z_lib PRIVATE linenoise)
 
 set_source_files_properties(
-    lib/linenoise/linenoise.c
+    ${LIB_DIR}/linenoise/linenoise.c
     PROPERTIES
     COMPILE_FLAGS "-w"
 )
@@ -89,6 +90,20 @@ else()
 endif()
 
 add_executable(mock_target ${MOCK_TARGET_DIR}/mock_target.c)
+
+add_library(ptrace_override SHARED ${LIB_DIR}/ptrace_override.c)
+
+set_target_properties(ptrace_override PROPERTIES OUTPUT_NAME "ptrace_intercept")
+
+set_target_properties(ptrace_override PROPERTIES
+    LIBRARY_OUTPUT_DIRECTORY ${BIN_DIR}
+    RUNTIME_OUTPUT_DIRECTORY ${BIN_DIR}
+)
+
+set_target_properties(ptrace_override PROPERTIES POSITION_INDEPENDENT_CODE ON)
+
+target_link_libraries(ptrace_override PRIVATE dl)
+
 set_target_properties(mock_target PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${BIN_DIR})
 
 find_program(LINTER clang-tidy-18)

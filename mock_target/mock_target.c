@@ -1,6 +1,7 @@
-#include <signal.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <sys/ptrace.h>
 #include <unistd.h>
 
 #define LOOP_COUNT 4
@@ -24,10 +25,28 @@ void increment_counter(void) {
         sub_method();
 }
 
+bool try_to_debug_myself(void) {
+        if (ptrace(PTRACE_TRACEME, 0, 1, 0) < 0) {
+                return true;
+        }
+        return false;
+}
+
+void check_for_debugging(void) {
+        printf("To debug or not to debug?\n");
+
+        if (try_to_debug_myself()) {
+                printf("Am I flawed because I am observed,"
+                       "or dost thy observation create the flaw itself?\n");
+        } else {
+                printf("I am unwatched, unnoticed, untested. Is this freedom or simply irrelevance?\n");
+        }
+}
+
 int main(void) {
         (void)(setvbuf(stdout, NULL, _IONBF, 0));
 
-        printf("Mock target started with PID %d\n", getpid());
+        check_for_debugging();
 
         int i = 3;
         while (i >= 0) {
