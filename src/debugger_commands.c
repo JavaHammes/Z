@@ -40,7 +40,7 @@ enum {
         LINENOISE_MAX_HISTORY_LENGTH = 100,
 };
 
-command_t get_command_type(const char *command) {
+static command_t _get_command_type(const char *command) {
         size_t map_size = sizeof(command_map) / sizeof(command_map[0]);
 
         for (size_t i = 0; i < map_size; ++i) {
@@ -52,7 +52,7 @@ command_t get_command_type(const char *command) {
         return UNKNOWN;
 }
 
-void completion(const char *buf, linenoiseCompletions *lc) {
+static void _completion(const char *buf, linenoiseCompletions *lc) {
         size_t buf_len = strlen(buf);
         size_t map_size = sizeof(command_map) / sizeof(command_map[0]);
 
@@ -263,7 +263,7 @@ int read_and_handle_user_command(debugger *dbg) {
         char *last_command = NULL;
 
         linenoiseHistorySetMaxLen(LINENOISE_MAX_HISTORY_LENGTH);
-        linenoiseSetCompletionCallback(completion);
+        linenoiseSetCompletionCallback(_completion);
 
         while (true) {
                 input = linenoise("Z: ");
@@ -300,7 +300,7 @@ int read_and_handle_user_command(debugger *dbg) {
 
                 command_t cmd_type = UNKNOWN;
                 if (command != NULL) {
-                        cmd_type = get_command_type(command);
+                        cmd_type = _get_command_type(command);
                 }
 
                 if (handle_user_input(dbg, cmd_type, arg) == EXIT_SUCCESS) {

@@ -6,6 +6,22 @@
 
 #include "breakpoint_handler.h"
 
+static void _alloc_new_capacity(breakpoint_handler *handler) {
+        size_t new_capacity =
+            (handler->capacity == 0) ? 4 : handler->capacity * 2;
+        breakpoint *new_breakpoints =
+            realloc(handler->breakpoints, new_capacity * sizeof(breakpoint));
+
+        if (!new_breakpoints) {
+                (void)(fprintf(stderr, "Error: Failed to allocate "
+                                       "memory for breakpoints.\n"));
+                exit(EXIT_FAILURE);
+        }
+
+        handler->breakpoints = new_breakpoints;
+        handler->capacity = new_capacity;
+}
+
 breakpoint_handler *init_breakpoint_handler(void) {
         breakpoint_handler *handler =
             (breakpoint_handler *)malloc(sizeof(breakpoint_handler));
@@ -26,7 +42,7 @@ void free_breakpoint_handler(breakpoint_handler *handler) {
 size_t add_software_breakpoint(breakpoint_handler *handler, uintptr_t address,
                                uint8_t original_byte) {
         if (handler->count == handler->capacity) {
-                alloc_new_capacity(handler);
+                _alloc_new_capacity(handler);
         }
 
         breakpoint bp;
@@ -42,7 +58,7 @@ size_t add_software_breakpoint(breakpoint_handler *handler, uintptr_t address,
 
 size_t add_hardware_breakpoint(breakpoint_handler *handler, uintptr_t address) {
         if (handler->count == handler->capacity) {
-                alloc_new_capacity(handler);
+                _alloc_new_capacity(handler);
         }
 
         breakpoint bp;
@@ -57,7 +73,7 @@ size_t add_hardware_breakpoint(breakpoint_handler *handler, uintptr_t address) {
 
 size_t add_watchpoint(breakpoint_handler *handler, uintptr_t address) {
         if (handler->count == handler->capacity) {
-                alloc_new_capacity(handler);
+                _alloc_new_capacity(handler);
         }
 
         breakpoint bp;
@@ -72,7 +88,7 @@ size_t add_watchpoint(breakpoint_handler *handler, uintptr_t address) {
 
 size_t add_catchpoint_signal(breakpoint_handler *handler, int signal_number) {
         if (handler->count == handler->capacity) {
-                alloc_new_capacity(handler);
+                _alloc_new_capacity(handler);
         }
 
         breakpoint bp;
@@ -88,7 +104,7 @@ size_t add_catchpoint_signal(breakpoint_handler *handler, int signal_number) {
 size_t add_catchpoint_event(breakpoint_handler *handler,
                             const char *event_name) {
         if (handler->count == handler->capacity) {
-                alloc_new_capacity(handler);
+                _alloc_new_capacity(handler);
         }
 
         breakpoint_t bp_type = CATCHPOINT_EVENT_INVALID;
@@ -196,20 +212,4 @@ void list_breakpoints(const breakpoint_handler *handler) {
                         break;
                 }
         }
-}
-
-void alloc_new_capacity(breakpoint_handler *handler) {
-        size_t new_capacity =
-            (handler->capacity == 0) ? 4 : handler->capacity * 2;
-        breakpoint *new_breakpoints =
-            realloc(handler->breakpoints, new_capacity * sizeof(breakpoint));
-
-        if (!new_breakpoints) {
-                (void)(fprintf(stderr, "Error: Failed to allocate "
-                                       "memory for breakpoints.\n"));
-                exit(EXIT_FAILURE);
-        }
-
-        handler->breakpoints = new_breakpoints;
-        handler->capacity = new_capacity;
 }

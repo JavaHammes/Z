@@ -5,8 +5,6 @@
 #include <criterion/criterion.h>
 #include <criterion/redirect.h>
 
-#include "test_macros.h"
-
 #include "debuggee.h"
 #include "debugger.h"
 

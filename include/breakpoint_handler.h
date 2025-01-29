@@ -71,4 +71,3 @@ size_t add_catchpoint_signal(breakpoint_handler *handler, int signal_number);
 size_t add_catchpoint_event(breakpoint_handler *handler, const char *event);
 int remove_breakpoint(breakpoint_handler *handler, size_t index);
 void list_breakpoints(const breakpoint_handler *handler);
-void alloc_new_capacity(breakpoint_handler *handler);

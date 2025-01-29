@@ -1,6 +1,6 @@
 #include "debugger.h"
-#include "macros.h"
 
+#include <limits.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -10,13 +10,15 @@ bool file_exists(const char *filename);
 
 int main(int argc, char **argv) {
         if (argc < 2) {
-                FATAL("Usage: %s <debug_target>\n", argv[0]);
+                (void)(fprintf(stderr, "Usage: %s <debug_target>\n", argv[0]));
         }
 
         const char *debuggee_name = argv[1];
 
         if (!file_exists(debuggee_name)) {
-                FATAL("Cannot find executable %s", debuggee_name);
+                (void)(fprintf(stderr, "Cannot find executable %s",
+                               debuggee_name));
+                return EXIT_FAILURE;
         }
 
         debugger dbg;
@@ -38,4 +40,9 @@ int main(int argc, char **argv) {
         return EXIT_SUCCESS;
 }
 
-bool file_exists(const char *filename) { return access(filename, F_OK) == 0; }
+bool file_exists(const char *filename) {
+        if (filename[0] == '.') {
+                return false;
+        }
+        return access(filename, F_OK | X_OK) == 0;
+}
