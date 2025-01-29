@@ -41,7 +41,7 @@ int main(int argc, char **argv) {
 }
 
 bool file_exists(const char *filename) {
-        if (filename[0] == '/' || filename[0] == '.') {
+        if (filename[0] == '.') {
                 return false;
         }
         return access(filename, F_OK | X_OK) == 0;
