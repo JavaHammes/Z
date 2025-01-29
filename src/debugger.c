@@ -1,7 +1,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <libgen.h>
-#include <limits.h>
+#include <linux/limits.h>
 #include <signal.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -14,6 +14,42 @@
 #include "debuggee.h"
 #include "debugger.h"
 #include "debugger_commands.h"
+
+int set_ld_preload(void) {
+        char exe_path[PATH_MAX];
+        ssize_t len =
+            readlink("/proc/self/exe", exe_path, sizeof(exe_path) - 1);
+
+        if (len == -1) {
+                perror("readlink");
+                return -1;
+        }
+
+        exe_path[len] = '\0';
+
+        char *dir = dirname(exe_path);
+        if (dir == NULL) {
+                perror("dirname");
+                return -1;
+        }
+
+        char preload_path[PATH_MAX];
+        (void)(snprintf(preload_path, sizeof(preload_path),
+                        "%s/libptrace_intercept.so", dir));
+
+        if (access(preload_path, R_OK) == -1) {
+                (void)(fprintf(stderr, "Shared library not found at: %s\n",
+                               preload_path));
+                return -1;
+        }
+
+        if (setenv("LD_PRELOAD", preload_path, 1) == -1) {
+                perror("setenv");
+                return -1;
+        }
+
+        return 0;
+}
 
 void init_debugger(debugger *dbg, const char *debuggee_name) {
         dbg->dbgee.pid = -1;
@@ -66,10 +102,9 @@ int start_debuggee(debugger *dbg) {
         }
 
         if (pid == 0) {
-                if (setenv("LD_PRELOAD", "./bin/libptrace_intercept.so", 1) ==
-                    -1) {
-                        perror("setenv");
-                        exit(EXIT_FAILURE);
+                if (set_ld_preload() != 0) {
+                        (void)(fprintf(stderr, "Failed to set LD_PRELOAD.\n"));
+                        return -1;
                 }
 
                 if (ptrace(PTRACE_TRACEME, 0, NULL, NULL) == -1) {

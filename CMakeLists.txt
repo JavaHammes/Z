@@ -19,9 +19,9 @@ set(CMAKE_C_STANDARD_REQUIRED True)
 set(CMAKE_C_EXTENSIONS OFF)
 
 add_compile_definitions(_POSIX_C_SOURCE=200809L)
+add_compile_options(-Wall -Wextra -pedantic)
 
 set(CMAKE_C_COMPILER gcc)
-set(CMAKE_C_FLAGS "-Wall -Wextra -pedantic")
 set(CMAKE_C_FLAGS_DEBUG "-g -O0")
 set(CMAKE_C_FLAGS_RELEASE "-Os")
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)

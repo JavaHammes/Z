@@ -36,7 +36,7 @@ void check_for_debugging(void) {
         printf("To debug or not to debug?\n");
 
         if (try_to_debug_myself()) {
-                printf("Am I flawed because I am observed,"
+                printf("Am I flawed because I am observed, "
                        "or dost thy observation create the flaw itself?\n");
         } else {
                 printf("I am unwatched, unnoticed, untested. Is this freedom or simply irrelevance?\n");

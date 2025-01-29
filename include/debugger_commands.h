@@ -1,7 +1,6 @@
 #pragma once
 
 #include "debugger.h"
-#include "linenoise.h"
 
 typedef enum {
         CLI_HELP,
@@ -33,9 +32,6 @@ typedef struct {
         const char *command;
         command_t type;
 } command_mapping;
-
-command_t get_command_type(const char *command);
-void completion(const char *buf, linenoiseCompletions *lc);
 
 int read_and_handle_user_command(debugger *dbg);
 int handle_user_input(debugger *dbg, command_t cmd_type, const char *arg);
