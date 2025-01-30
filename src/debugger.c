@@ -15,7 +15,13 @@
 #include "debugger.h"
 #include "debugger_commands.h"
 
-int set_ld_preload(void) {
+int set_ld_preload(const char *libs[], size_t count) {
+        if (count == 0) {
+                (void)(fprintf(stderr,
+                               "No libraries provided to set_ld_preload.\n"));
+                return -1;
+        }
+
         char exe_path[PATH_MAX];
         ssize_t len =
             readlink("/proc/self/exe", exe_path, sizeof(exe_path) - 1);
@@ -33,17 +39,37 @@ int set_ld_preload(void) {
                 return -1;
         }
 
-        char preload_path[PATH_MAX];
-        (void)(snprintf(preload_path, sizeof(preload_path),
-                        "%s/libptrace_intercept.so", dir));
+        char ld_preload_value[PATH_MAX * count];
+        ld_preload_value[0] = '\0';
 
-        if (access(preload_path, R_OK) == -1) {
-                (void)(fprintf(stderr, "Shared library not found at: %s\n",
-                               preload_path));
-                return -1;
+        for (size_t i = 0; i < count; ++i) {
+                char preload_path[PATH_MAX];
+                if ((unsigned long)(snprintf(preload_path, sizeof(preload_path),
+                                             "%s/%s", dir, libs[i])) >=
+                    sizeof(preload_path)) {
+                        (void)(fprintf(stderr, "Path too long for %s\n",
+                                       libs[i]));
+                        return -1;
+                }
+
+                if (access(preload_path, R_OK) == -1) {
+                        (void)(fprintf(stderr,
+                                       "Shared library not found at: %s\n",
+                                       preload_path));
+                        return -1;
+                }
+
+                if (i > 0) {
+                        strncat(ld_preload_value, ":",
+                                sizeof(ld_preload_value) -
+                                    strlen(ld_preload_value) - 1);
+                }
+                strncat(ld_preload_value, preload_path,
+                        sizeof(ld_preload_value) - strlen(ld_preload_value) -
+                            1);
         }
 
-        if (setenv("LD_PRELOAD", preload_path, 1) == -1) {
+        if (setenv("LD_PRELOAD", ld_preload_value, 1) == -1) {
                 perror("setenv");
                 return -1;
         }
@@ -102,9 +128,13 @@ int start_debuggee(debugger *dbg) {
         }
 
         if (pid == 0) {
-                if (set_ld_preload() != 0) {
+                const char *libs[] = {"libptrace_intercept.so",
+                                      "libfopen_intercept.so"};
+                size_t lib_count = sizeof(libs) / sizeof(libs[0]);
+
+                if (set_ld_preload(libs, lib_count) != 0) {
                         (void)(fprintf(stderr, "Failed to set LD_PRELOAD.\n"));
-                        return -1;
+                        exit(EXIT_FAILURE);
                 }
 
                 if (ptrace(PTRACE_TRACEME, 0, NULL, NULL) == -1) {

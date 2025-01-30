@@ -92,17 +92,22 @@ endif()
 add_executable(mock_target ${MOCK_TARGET_DIR}/mock_target.c)
 
 add_library(ptrace_override SHARED ${LIB_DIR}/ptrace_override.c)
-
 set_target_properties(ptrace_override PROPERTIES OUTPUT_NAME "ptrace_intercept")
-
 set_target_properties(ptrace_override PROPERTIES
     LIBRARY_OUTPUT_DIRECTORY ${BIN_DIR}
     RUNTIME_OUTPUT_DIRECTORY ${BIN_DIR}
 )
-
 set_target_properties(ptrace_override PROPERTIES POSITION_INDEPENDENT_CODE ON)
-
 target_link_libraries(ptrace_override PRIVATE dl)
+
+add_library(fopen_override SHARED ${LIB_DIR}/fopen_override.c)
+set_target_properties(fopen_override PROPERTIES OUTPUT_NAME "fopen_intercept")
+set_target_properties(fopen_override PROPERTIES
+    LIBRARY_OUTPUT_DIRECTORY ${BIN_DIR}
+    RUNTIME_OUTPUT_DIRECTORY ${BIN_DIR}
+)
+set_target_properties(fopen_override PROPERTIES POSITION_INDEPENDENT_CODE ON)
+target_link_libraries(fopen_override PRIVATE dl)
 
 set_target_properties(mock_target PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${BIN_DIR})
 

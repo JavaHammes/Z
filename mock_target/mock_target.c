@@ -1,10 +1,14 @@
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <sys/ptrace.h>
 #include <unistd.h>
 
 #define LOOP_COUNT 4
+#define MAX_LINE_LENGTH 256
+#define DECIMAL_BASE 10
+#define TEN_CHARS 10
 
 int debug_count = 0;
 
@@ -32,10 +36,35 @@ bool try_to_debug_myself(void) {
         return false;
 }
 
+bool check_tracer_pid(void) {
+    FILE *file = fopen("/proc/self/status", "r");
+    if (!file) {
+        return false;
+    }
+
+    char line[MAX_LINE_LENGTH];
+    bool result = false;
+
+    while (fgets(line, sizeof(line), file)) {
+        if (strncmp(line, "TracerPid:", DECIMAL_BASE) == 0) {
+            int tracer_pid = 0;
+            if (sscanf(line + TEN_CHARS, "%d", &tracer_pid) == 1 && tracer_pid != 0) { // NOLINT
+                result = true;
+                break;
+            }
+        }
+    }
+
+    (void)(fclose(file));
+    return result;
+}
+
 void check_for_debugging(void) {
         printf("To debug or not to debug?\n");
 
-        if (try_to_debug_myself()) {
+        bool debugging_detected = try_to_debug_myself() || check_tracer_pid();
+
+        if (debugging_detected) {
                 printf("Am I flawed because I am observed, "
                        "or dost thy observation create the flaw itself?\n");
         } else {
