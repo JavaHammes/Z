@@ -123,6 +123,7 @@ add_custom_target(format
     COMMAND find ${SRC_DIR} -name "*.c" -exec ${FORMATTER} -style=file -i {} +
     COMMAND find ${TESTS_DIR} -name "*.c" -exec ${FORMATTER} -style=file -i {} +
     COMMAND find ${INCLUDE_DIR} -name "*.h" -exec ${FORMATTER} -style=file -i {} +
+    COMMAND find ${MOCK_TARGET_DIR} -name "*.c" -exec ${FORMATTER} -style=file -i {} +
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
 )
 

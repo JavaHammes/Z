@@ -1763,7 +1763,13 @@ int DisplayGlobalVariables(debuggee *dbgee) {
         return EXIT_SUCCESS;
 }
 
-int DisplayFunctionNames(debuggee *dbgee) {
+// TODO: Improve this function (or write a new one) by analyzing the Procedure
+//       Linkage Table (PLT) to identify functions that call `gettimeofday` or
+//       other time-related functions. This requires parsing the dynamic symbol
+//       table to detect indirect calls through the PLT. If the user is inside
+//       such a function, issue a warning.
+//       This enhancement is too complex for now. :-/
+int DisplayFunctionNames(debuggee *dbgee) { // NOLINT
         if (dbgee == NULL || dbgee->name == NULL) {
                 (void)(fprintf(stderr, "Invalid debuggee or debuggee name.\n"));
                 return EXIT_FAILURE;
@@ -1793,14 +1799,17 @@ int DisplayFunctionNames(debuggee *dbgee) {
         printf("---------------------------------------------------------------"
                "-----------------\n");
 
+        const char *warning_keywords[] = {"time", "date", "clock", "rdtsc"};
+        size_t num_keywords =
+            sizeof(warning_keywords) / sizeof(warning_keywords[0]);
+
         for (size_t entry_idx = 0; entry_idx < symtab_struct.num_entries;
              entry_idx++) {
                 elf_symtab_entry *entry = &symtab_struct.entries[entry_idx];
                 for (size_t j = 0; j < entry->num_symbols; j++) {
                         Elf64_Sym sym = entry->symtab[j];
 
-                        if ((ELF64_ST_TYPE(sym.st_info) != STT_FUNC) ||
-                            (sym.st_shndx == SHN_UNDEF)) {
+                        if (ELF64_ST_TYPE(sym.st_info) != STT_FUNC) {
                                 continue;
                         }
 
@@ -1811,8 +1820,25 @@ int DisplayFunctionNames(debuggee *dbgee) {
 
                         unsigned long abs_address = base_address + sym.st_value;
 
-                        printf("%-40s 0x%016lx %-10lu\n", sym_name, abs_address,
-                               sym.st_size);
+                        bool should_warn = false;
+                        for (size_t k = 0; k < num_keywords; k++) {
+                                if (strstr(sym_name, warning_keywords[k])) {
+                                        should_warn = true;
+                                        break;
+                                }
+                        }
+
+                        if ((sym.st_size > 0) ||
+                            (should_warn && !strstr(sym_name, "@"))) {
+                                printf("%-40s 0x%016lx %-10lu", sym_name,
+                                       abs_address, sym.st_size);
+                                if (should_warn) {
+                                        printf("  [WARNING: Time/Date related "
+                                               "function]\n");
+                                } else {
+                                        printf("\n");
+                                }
+                        }
                 }
         }
 

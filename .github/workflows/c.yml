@@ -17,12 +17,12 @@ jobs:
 
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           submodules: true
 
       - name: Cache CMake and LLVM
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: |
             ~/.cache/llvm
@@ -81,9 +81,9 @@ jobs:
         run: |
           echo "run" | valgrind --leak-check=full --show-leak-kinds=all ${PWD}/bin/z ${PWD}/bin/mock_target
 
-      - name: Upload Test Coverage (Optional)
+      - name: Upload Test Coverage
         if: success() || failure()
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: test-results
           path: build/test-results.xml
