@@ -1,20 +1,23 @@
+// NOLINTBEGIN
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/ptrace.h>
+#include <sys/time.h>
 #include <unistd.h>
 
 #define LOOP_COUNT 4
-#define MAX_LINE_LENGTH 256
-#define DECIMAL_BASE 10
-#define TEN_CHARS 10
 
 int debug_count = 0;
 
-void print_message(void) {
-        printf("I debug, therefore I am.\n");
+unsigned long get_time_us() {
+        struct timeval tv;
+        gettimeofday(&tv, NULL);
+        return (tv.tv_sec * 1000000) + tv.tv_usec;
 }
+
+void print_message(void) { printf("I debug, therefore I am.\n"); }
 
 void sub_method(void) {
         int j = 1;
@@ -29,46 +32,53 @@ void increment_counter(void) {
         sub_method();
 }
 
-bool try_to_debug_myself(void) {
-        if (ptrace(PTRACE_TRACEME, 0, 1, 0) < 0) {
-                return true;
+bool check_tracer_pid(void) {
+        FILE *file = fopen("/proc/self/status", "r");
+        if (!file) {
+                return false;
         }
-        return false;
+
+        char line[256];
+        bool result = false;
+
+        while (fgets(line, sizeof(line), file)) {
+                if (strstr(line, "TracerPid:") != NULL) {
+                        if (atoi(&line[10]) != 0) {
+                                result = true;
+                                break;
+                        }
+                }
+        }
+
+        (void)(fclose(file));
+        return result;
 }
 
-bool check_tracer_pid(void) {
-    FILE *file = fopen("/proc/self/status", "r");
-    if (!file) {
-        return false;
-    }
+bool try_to_debug_myself(void) { return ptrace(PTRACE_TRACEME, 0, 1, 0) < 0; }
 
-    char line[MAX_LINE_LENGTH];
-    bool result = false;
+bool timing_analysis(void) {
+        unsigned long begin;
+        unsigned long duration;
 
-    while (fgets(line, sizeof(line), file)) {
-        if (strncmp(line, "TracerPid:", DECIMAL_BASE) == 0) {
-            int tracer_pid = 0;
-            if (sscanf(line + TEN_CHARS, "%d", &tracer_pid) == 1 && tracer_pid != 0) { // NOLINT
-                result = true;
-                break;
-            }
-        }
-    }
+        begin = get_time_us();
+        sleep(1);
+        duration = get_time_us() - begin;
 
-    (void)(fclose(file));
-    return result;
+        return duration > 1010000;
 }
 
 void check_for_debugging(void) {
         printf("To debug or not to debug?\n");
 
-        bool debugging_detected = try_to_debug_myself() || check_tracer_pid();
+        bool debugging_detected =
+            check_tracer_pid() || try_to_debug_myself() || timing_analysis();
 
         if (debugging_detected) {
                 printf("Am I flawed because I am observed, "
                        "or dost thy observation create the flaw itself?\n");
         } else {
-                printf("I am unwatched, unnoticed, untested. Is this freedom or simply irrelevance?\n");
+                printf("I am unwatched, unnoticed, untested. Is this freedom "
+                       "or simply irrelevance?\n");
         }
 }
 
@@ -85,6 +95,6 @@ int main(void) {
                 increment_counter();
         }
 
-
         return 0;
 }
+// NOLINTEND
