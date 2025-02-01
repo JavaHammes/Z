@@ -91,23 +91,20 @@ endif()
 
 add_executable(mock_target ${MOCK_TARGET_DIR}/mock_target.c)
 
-add_library(ptrace_override SHARED ${LIB_DIR}/ptrace_override.c)
-set_target_properties(ptrace_override PROPERTIES OUTPUT_NAME "ptrace_intercept")
-set_target_properties(ptrace_override PROPERTIES
-    LIBRARY_OUTPUT_DIRECTORY ${BIN_DIR}
-    RUNTIME_OUTPUT_DIRECTORY ${BIN_DIR}
-)
-set_target_properties(ptrace_override PROPERTIES POSITION_INDEPENDENT_CODE ON)
-target_link_libraries(ptrace_override PRIVATE dl)
+function(add_override_library name source)
+    add_library(${name}_override SHARED ${LIB_DIR}/${source}.c)
+    set_target_properties(${name}_override PROPERTIES
+        OUTPUT_NAME "${name}_intercept"
+        LIBRARY_OUTPUT_DIRECTORY ${BIN_DIR}
+        RUNTIME_OUTPUT_DIRECTORY ${BIN_DIR}
+        POSITION_INDEPENDENT_CODE ON
+    )
+    target_link_libraries(${name}_override PRIVATE dl)
+endfunction()
 
-add_library(fopen_override SHARED ${LIB_DIR}/fopen_override.c)
-set_target_properties(fopen_override PROPERTIES OUTPUT_NAME "fopen_intercept")
-set_target_properties(fopen_override PROPERTIES
-    LIBRARY_OUTPUT_DIRECTORY ${BIN_DIR}
-    RUNTIME_OUTPUT_DIRECTORY ${BIN_DIR}
-)
-set_target_properties(fopen_override PROPERTIES POSITION_INDEPENDENT_CODE ON)
-target_link_libraries(fopen_override PRIVATE dl)
+add_override_library(ptrace ptrace_override)
+add_override_library(fopen fopen_override)
+add_override_library(prctl prctl_override)
 
 set_target_properties(mock_target PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${BIN_DIR})
 
@@ -124,6 +121,7 @@ add_custom_target(format
     COMMAND find ${TESTS_DIR} -name "*.c" -exec ${FORMATTER} -style=file -i {} +
     COMMAND find ${INCLUDE_DIR} -name "*.h" -exec ${FORMATTER} -style=file -i {} +
     COMMAND find ${MOCK_TARGET_DIR} -name "*.c" -exec ${FORMATTER} -style=file -i {} +
+    COMMAND find ${LIB_DIR} -maxdepth 1 -type f -exec ${FORMATTER} -style=file -i {} +
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
 )
 
