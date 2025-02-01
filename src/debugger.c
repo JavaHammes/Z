@@ -129,7 +129,8 @@ int start_debuggee(debugger *dbg) {
 
         if (pid == 0) {
                 const char *libs[] = {"libptrace_intercept.so",
-                                      "libfopen_intercept.so"};
+                                      "libfopen_intercept.so",
+                                      "libprctl_intercept.so"};
                 size_t lib_count = sizeof(libs) / sizeof(libs[0]);
 
                 if (set_ld_preload(libs, lib_count) != 0) {
