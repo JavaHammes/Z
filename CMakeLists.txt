@@ -105,6 +105,7 @@ endfunction()
 add_override_library(ptrace ptrace_override)
 add_override_library(fopen fopen_override)
 add_override_library(prctl prctl_override)
+add_override_library(getenv getenv_override)
 
 set_target_properties(mock_target PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${BIN_DIR})
 

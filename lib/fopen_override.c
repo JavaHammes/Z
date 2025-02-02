@@ -4,6 +4,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "filter_so.h"
+
 #define MAX_LINE_LENGTH 1024
 #define DECIMAL_BASE 10
 
@@ -78,13 +80,19 @@ FILE *fopen(const char *__restrict__filename, const char *__modes) {
                 }
 
                 char line[MAX_LINE_LENGTH];
+
                 while (fgets(line, sizeof(line), real_maps) != NULL) {
-                        if (strstr(line, "libfopen_intercept.so") != NULL ||
-                            strstr(line, "libprctl_intercept.so") != NULL ||
-                            strstr(line, "libptrace_intercept.so") != NULL) {
-                                continue;
+                        int should_filter = 0;
+                        for (int i = 0; SO_FILES[i] != NULL; i++) {
+                                if (strstr(line, SO_FILES[i]) != NULL) {
+                                        should_filter = 1;
+                                        break;
+                                }
                         }
-                        (void)(fputs(line, fake_maps));
+
+                        if (!should_filter) {
+                                (void)(fputs(line, fake_maps));
+                        }
                 }
 
                 rewind(fake_maps);
