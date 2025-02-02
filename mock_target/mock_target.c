@@ -12,7 +12,7 @@
 #define LOOP_COUNT 4
 
 int debug_count = 0;
-bool not_sigtrap_caught = true;
+bool sigtrap_intercepted = false;
 
 void print_message(void) { printf("I debug, therefore I am.\n"); }
 
@@ -92,7 +92,7 @@ void check_for_debugging(void) {
 
         bool debugging_detected =
             check_tracer_pid() || try_to_debug_myself() || timing_analysis() ||
-            check_for_additional_libraries() || not_sigtrap_caught;
+            check_for_additional_libraries() || (!sigtrap_intercepted);
 
         if (debugging_detected) {
                 printf("Am I flawed because I am observed, "
@@ -105,7 +105,7 @@ void check_for_debugging(void) {
 
 void handler(int signo) {
         if (signo == SIGTRAP) {
-                not_sigtrap_caught = false;
+                sigtrap_intercepted = true;
         }
 }
 
