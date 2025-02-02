@@ -1,4 +1,5 @@
 // NOLINTBEGIN
+#include <signal.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -11,6 +12,7 @@
 #define LOOP_COUNT 4
 
 int debug_count = 0;
+bool sigtrap_intercepted = false;
 
 void print_message(void) { printf("I debug, therefore I am.\n"); }
 
@@ -88,9 +90,9 @@ bool check_for_additional_libraries(void) {
 void check_for_debugging(void) {
         printf("To debug or not to debug?\n");
 
-        bool debugging_detected = check_tracer_pid() || try_to_debug_myself() ||
-                                  timing_analysis() ||
-                                  check_for_additional_libraries();
+        bool debugging_detected =
+            check_tracer_pid() || try_to_debug_myself() || timing_analysis() ||
+            check_for_additional_libraries() || (!sigtrap_intercepted);
 
         if (debugging_detected) {
                 printf("Am I flawed because I am observed, "
@@ -99,6 +101,17 @@ void check_for_debugging(void) {
                 printf("I am unwatched, unnoticed, untested. Is this freedom "
                        "or simply irrelevance?\n");
         }
+}
+
+void handler(int signo) {
+        if (signo == SIGTRAP) {
+                sigtrap_intercepted = true;
+        }
+}
+
+void insert_false_breakpoint(void) {
+        signal(SIGTRAP, handler);
+        __asm__("int3");
 }
 
 int deny_memory_inspection(void) {
@@ -115,6 +128,8 @@ void init_anti_debug(void) {
                 printf("They say a wise program hides its thoughts—clearly, I "
                        "am but a fool in the land of debuggers.\n");
         }
+
+        insert_false_breakpoint();
 }
 
 int main(void) {

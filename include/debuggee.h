@@ -16,7 +16,8 @@ typedef enum {
         IDLE = 0,
         RUNNING = 1,
         STOPPED = 2,
-        TERMINATED = 3,
+        SINGLE_STEPPING = 3,
+        TERMINATED = 4,
 } debuggee_state;
 
 typedef struct debuggee {
