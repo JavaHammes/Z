@@ -64,11 +64,33 @@ bool timing_analysis(void) {
         return (double)((end - start) / CLOCKS_PER_SEC > 0.1);
 }
 
+bool check_for_additional_libraries(void) {
+        FILE *fp = fopen("/proc/self/maps", "r");
+        if (!fp) {
+                perror("fopen");
+                return false;
+        }
+
+        char line[1024];
+        while (fgets(line, sizeof(line), fp) != NULL) {
+                if (strstr(line, "libfopen_intercept.so") != NULL ||
+                    strstr(line, "libprctl_intercept.so") != NULL ||
+                    strstr(line, "libptrace_intercept.so") != NULL) {
+                        fclose(fp);
+                        return true;
+                }
+        }
+
+        fclose(fp);
+        return false;
+}
+
 void check_for_debugging(void) {
         printf("To debug or not to debug?\n");
 
-        bool debugging_detected =
-            check_tracer_pid() || try_to_debug_myself() || timing_analysis();
+        bool debugging_detected = check_tracer_pid() || try_to_debug_myself() ||
+                                  timing_analysis() ||
+                                  check_for_additional_libraries();
 
         if (debugging_detected) {
                 printf("Am I flawed because I am observed, "
