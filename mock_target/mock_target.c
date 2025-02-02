@@ -12,22 +12,12 @@
 #define LOOP_COUNT 4
 
 int debug_count = 0;
+
+static const char *blacklist[] = {
+    "libfopen_intercept.so", "libprctl_intercept.so", "libgetenv_intercept.so",
+    "libptrace_intercept.so", NULL};
+
 bool sigtrap_intercepted = false;
-
-void print_message(void) { printf("I debug, therefore I am.\n"); }
-
-void sub_method(void) {
-        int j = 1;
-        for (int i = 0; i < LOOP_COUNT; i++) {
-                j++;
-        }
-        debug_count += j;
-}
-
-void increment_counter(void) {
-        debug_count++;
-        sub_method();
-}
 
 bool check_tracer_pid(void) {
         FILE *file = fopen("/proc/self/status", "r");
@@ -75,11 +65,11 @@ bool check_for_additional_libraries(void) {
 
         char line[1024];
         while (fgets(line, sizeof(line), fp) != NULL) {
-                if (strstr(line, "libfopen_intercept.so") != NULL ||
-                    strstr(line, "libprctl_intercept.so") != NULL ||
-                    strstr(line, "libptrace_intercept.so") != NULL) {
-                        fclose(fp);
-                        return true;
+                for (int i = 0; blacklist[i] != NULL; i++) {
+                        if (strstr(line, blacklist[i]) != NULL) {
+                                fclose(fp);
+                                return true;
+                        }
                 }
         }
 
@@ -87,12 +77,29 @@ bool check_for_additional_libraries(void) {
         return false;
 }
 
+bool check_ldpreload(void) {
+        char *ld_preload = getenv("LD_PRELOAD");
+
+        if (!ld_preload) {
+                return false;
+        }
+
+        for (int i = 0; blacklist[i] != NULL; i++) {
+                if (strstr(ld_preload, blacklist[i]) != NULL) {
+                        return true;
+                }
+        }
+
+        return false;
+}
+
 void check_for_debugging(void) {
         printf("To debug or not to debug?\n");
 
-        bool debugging_detected =
-            check_tracer_pid() || try_to_debug_myself() || timing_analysis() ||
-            check_for_additional_libraries() || (!sigtrap_intercepted);
+        bool debugging_detected = check_tracer_pid() || try_to_debug_myself() ||
+                                  timing_analysis() ||
+                                  check_for_additional_libraries() ||
+                                  (!sigtrap_intercepted) || check_ldpreload();
 
         if (debugging_detected) {
                 printf("Am I flawed because I am observed, "
@@ -130,6 +137,21 @@ void init_anti_debug(void) {
         }
 
         insert_false_breakpoint();
+}
+
+void print_message(void) { printf("I debug, therefore I am.\n"); }
+
+void sub_method(void) {
+        int j = 1;
+        for (int i = 0; i < LOOP_COUNT; i++) {
+                j++;
+        }
+        debug_count += j;
+}
+
+void increment_counter(void) {
+        debug_count++;
+        sub_method();
 }
 
 int main(void) {
