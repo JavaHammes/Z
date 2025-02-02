@@ -482,11 +482,12 @@ static int _step_and_wait(debuggee *dbgee) { // NOLINT
                         }
                 }
 
-                if (!breakpoint_handled && dbgee->state != STOPPED) {
+                if (!breakpoint_handled && dbgee->state != SINGLE_STEPPING) {
                         printf("Ignoring signal %d.\n\r", sig);
                 }
         }
 
+        dbgee->state = STOPPED;
         return EXIT_SUCCESS;
 }
 
@@ -495,6 +496,7 @@ static int _step_replaced_instruction(debuggee *dbgee) {
                 (void)(fprintf(stderr, "Failed to execute single step.\n"));
                 return EXIT_FAILURE;
         }
+        dbgee->state = STOPPED;
 
         int wait_status;
         if (waitpid(dbgee->pid, &wait_status, 0) == -1) {
@@ -897,10 +899,11 @@ int Step(debuggee *dbgee) {
                 return EXIT_FAILURE;
         }
 
-        // Not setting debuggee state back to RUNNING
+        dbgee->state = SINGLE_STEPPING;
         return EXIT_SUCCESS;
 }
 
+/*
 int StepOver(debuggee *dbgee) {
         unsigned long rip;
         if (_read_rip(dbgee, &rip) != 0) {
@@ -937,6 +940,46 @@ int StepOver(debuggee *dbgee) {
             "Failed to set step over. Current instruction is not callable.\n"));
         return EXIT_FAILURE;
 }
+*/
+
+int StepOver(debuggee *dbgee) {
+        unsigned long rip;
+        if (_read_rip(dbgee, &rip) != 0) {
+                (void)(fprintf(stderr, "Failed to read RIP for StepOver.\n"));
+                return EXIT_FAILURE;
+        }
+
+        unsigned long final_addr = rip;
+        while (_is_call_instruction(dbgee, final_addr)) {
+
+                // Set temporary breakpoint at the instruction after the call
+                // instruction. On x86_64 we know that we need to add 5. 1 byte
+                // for oppcode and 4 for the relative offset.
+                final_addr += NEXT_INSTRUCTION_OFFSET;
+        }
+
+        if (final_addr == rip) {
+                (void)(fprintf(stderr,
+                               "Current instruction at 0x%lx is not a call.\n",
+                               rip));
+                return EXIT_FAILURE;
+        }
+
+        if (set_temp_sw_breakpoint(dbgee, final_addr) != EXIT_SUCCESS) {
+                (void)(fprintf(stderr,
+                               "Failed to set temporary breakpoint at 0x%lx.\n",
+                               final_addr));
+                return EXIT_FAILURE;
+        }
+
+        if (ptrace(PTRACE_CONT, dbgee->pid, NULL, NULL) == -1) {
+                perror("ptrace CONT");
+                return EXIT_FAILURE;
+        }
+        dbgee->state = RUNNING;
+
+        return EXIT_SUCCESS;
+}
 
 int StepOut(debuggee *dbgee) {
         unsigned long return_address;
@@ -961,13 +1004,14 @@ int StepOut(debuggee *dbgee) {
                 perror("ptrace CONT");
                 return EXIT_FAILURE;
         }
-        dbgee->state = RUNNING;
 
+        dbgee->state = RUNNING;
         return EXIT_SUCCESS;
 }
 
 int Skip(debuggee *dbgee, const char *arg) {
         int n = (int)strtol(arg, NULL, DECIMAL_BASE_PARAMETER);
+
         if (n <= 0) {
                 (void)(fprintf(stderr,
                                "Invalid number of instructions to skip: %s\n",

@@ -204,6 +204,7 @@ int trace_debuggee(debugger *dbg) { // NOLINT
 
                 if (WIFSTOPPED(status)) {
                         int sig = WSTOPSIG(status);
+
                         unsigned long event =
                             (status >> PTRACE_EVENT_SHIFT) & PTRACE_EVENT_MASK;
                         dbg->dbgee.state = STOPPED;
@@ -290,7 +291,21 @@ int trace_debuggee(debugger *dbg) { // NOLINT
                         }
 
                         if (!breakpoint_handled &&
-                            dbg->dbgee.state != STOPPED) {
+                            dbg->dbgee.state != SINGLE_STEPPING) {
+
+                                // If we receive a SIGTRAP that is neither from a breakpoint nor a single-step event,
+                                // it must have originated from the debuggee rather than our debugger.
+                                // To counter anti-debugging techniques, we need to forward it back to the debuggee.
+                                if (sig == SIGTRAP) {
+                                        printf("Sending SIGTRAP back to debuggee.\n\r");
+
+                                        if (ptrace(PTRACE_CONT, dbg->dbgee.pid, NULL, SIGTRAP) == -1) {
+                                                perror("ptrace CONT to send SIGTRAP");
+                                                return EXIT_FAILURE;
+                                        }
+                                        continue;
+                                }
+
                                 printf("Ignoring signal %d.\n\r", sig);
                                 if (ptrace(PTRACE_CONT, dbg->dbgee.pid, NULL,
                                            NULL) == -1) {
