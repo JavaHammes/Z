@@ -51,7 +51,7 @@ int SetCatchpoint(debuggee *dbgee, const char *arg);
 int RemoveBreakpoint(debuggee *dbgee, const char *arg);
 void ListBreakpoints(debuggee *dbgee);
 
-unsigned long get_main_absolute_address(debuggee *dbgee);
+unsigned long get_entry_absolute_address(debuggee *dbgee);
 int set_temp_sw_breakpoint(debuggee *dbgee, uint64_t addr);
 bool is_software_breakpoint(debuggee *dbgee, size_t *bp_index_out);
 bool is_hardware_breakpoint(debuggee *dbgee, size_t *bp_index_out);

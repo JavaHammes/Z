@@ -210,18 +210,25 @@ int trace_debuggee(debugger *dbg) { // NOLINT
                         dbg->dbgee.state = STOPPED;
 
                         if (main_startup_breakpoint_set == false) {
-                                unsigned long main_address =
-                                    get_main_absolute_address(&dbg->dbgee);
-
-                                if (main_address == 0) {
+                                unsigned long entry_address =
+                                    get_entry_absolute_address(&dbg->dbgee);
+                                if (entry_address == 0) {
                                         (void)(fprintf(stderr,
-                                                       "Failed to retrieve "
-                                                       "'main' address.\n"));
+                                                       "Failed to retrieve the "
+                                                       "entry point.\n"));
                                         return EXIT_FAILURE;
                                 }
 
-                                set_temp_sw_breakpoint(&dbg->dbgee,
-                                                       main_address);
+                                if (set_temp_sw_breakpoint(&dbg->dbgee,
+                                                           entry_address) !=
+                                    EXIT_SUCCESS) {
+                                        (void)(fprintf(
+                                            stderr,
+                                            "Failed to set temporary "
+                                            "breakpoint at 0x%lx.\n",
+                                            entry_address));
+                                        return EXIT_FAILURE;
+                                }
 
                                 if (ptrace(PTRACE_CONT, dbg->dbgee.pid, NULL,
                                            NULL) == -1) {
