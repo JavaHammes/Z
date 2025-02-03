@@ -13,6 +13,7 @@
 #include <sys/ptrace.h>
 #include <sys/user.h>
 #include <sys/wait.h>
+#include <unistd.h>
 
 #include "debuggee.h"
 
@@ -902,45 +903,6 @@ int Step(debuggee *dbgee) {
         dbgee->state = SINGLE_STEPPING;
         return EXIT_SUCCESS;
 }
-
-/*
-int StepOver(debuggee *dbgee) {
-        unsigned long rip;
-        if (_read_rip(dbgee, &rip) != 0) {
-                (void)(fprintf(stderr, "Failed to read RIP for StepOver.\n"));
-                return EXIT_FAILURE;
-        }
-
-        bool is_call = _is_call_instruction(dbgee, rip);
-        if (is_call) {
-
-                // Set temporary breakpoint at the instruction after the call
-                // instruction. On x86_64 we know that we need to add 5. 1 byte
-                // for oppcode and 4 for the relative offset.
-                unsigned long return_addr = rip + NEXT_INSTRUCTION_OFFSET;
-
-                if (set_temp_sw_breakpoint(dbgee, return_addr) !=
-                    EXIT_SUCCESS) {
-                        (void)(fprintf(stderr, "Failed to set temporary "
-                                               "breakpoint for StepOver.\n"));
-                        return EXIT_FAILURE;
-                }
-
-                if (ptrace(PTRACE_CONT, dbgee->pid, NULL, NULL) == -1) {
-                        perror("ptrace CONT");
-                        return EXIT_FAILURE;
-                }
-                dbgee->state = RUNNING;
-
-                return EXIT_SUCCESS;
-        }
-
-        (void)(fprintf(
-            stderr,
-            "Failed to set step over. Current instruction is not callable.\n"));
-        return EXIT_FAILURE;
-}
-*/
 
 int StepOver(debuggee *dbgee) {
         unsigned long rip;
@@ -1843,7 +1805,8 @@ int DisplayFunctionNames(debuggee *dbgee) { // NOLINT
         printf("---------------------------------------------------------------"
                "-----------------\n");
 
-        const char *warning_keywords[] = {"time", "date", "clock", "rdtsc"};
+        const char *warning_keywords[] = {"time", "timing", "date", "clock",
+                                          "rdtsc"};
         size_t num_keywords =
             sizeof(warning_keywords) / sizeof(warning_keywords[0]);
 
@@ -1877,7 +1840,7 @@ int DisplayFunctionNames(debuggee *dbgee) { // NOLINT
                                 printf("%-40s 0x%016lx %-10lu", sym_name,
                                        abs_address, sym.st_size);
                                 if (should_warn) {
-                                        printf("  [WARNING: Time/Date related "
+                                        printf("  [WARNING: Time related "
                                                "function]\n");
                                 } else {
                                         printf("\n");
@@ -1898,23 +1861,37 @@ int DisplayFunctionNames(debuggee *dbgee) { // NOLINT
         return EXIT_SUCCESS;
 }
 
-unsigned long get_main_absolute_address(debuggee *dbgee) {
-        unsigned long main_offset = _get_symbol_offset(dbgee, "main");
-        if (main_offset == 0) {
-                (void)(fprintf(stderr,
-                               "Failed to get 'main' symbol offset.\n"));
+unsigned long get_entry_absolute_address(debuggee *dbgee) {
+        int fd = open(dbgee->name, O_RDONLY);
+        if (fd < 0) {
+                perror("open");
                 return 0;
         }
 
-        unsigned long base_address = _get_load_base(dbgee);
-        if (base_address == 0) {
-                (void)(fprintf(stderr, "Failed to get base address.\n"));
+        Elf64_Ehdr ehdr;
+        ssize_t bytes_read = read(fd, &ehdr, sizeof(ehdr));
+        if (bytes_read != sizeof(ehdr)) {
+                perror("read");
+                close(fd);
                 return 0;
         }
+        close(fd);
 
-        unsigned long main_absolute = base_address + main_offset;
-        printf("'main' absolute address: 0x%lx\n", main_absolute);
-        return main_absolute;
+        unsigned long entry_point = ehdr.e_entry;
+
+        if (ehdr.e_type == ET_DYN) {
+                unsigned long base_address = _get_load_base(dbgee);
+                if (base_address == 0) {
+                        (void)(fprintf(
+                            stderr,
+                            "Failed to get base address for PIE binary.\n"));
+                        return 0;
+                }
+                entry_point += base_address;
+        }
+
+        printf("Program entry point: 0x%lx\n", entry_point);
+        return entry_point;
 }
 
 int set_temp_sw_breakpoint(debuggee *dbgee, uint64_t addr) {

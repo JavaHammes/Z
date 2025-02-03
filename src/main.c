@@ -1,22 +1,32 @@
-#include "debugger.h"
-
-#include <limits.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
 
-bool file_exists(const char *filename);
+#include "debugger.h"
+
+bool is_relative_path(const char *filename) { return filename[0] == '.'; }
+
+bool file_exists(const char *filename) {
+        return access(filename, F_OK | X_OK) == 0;
+}
 
 int main(int argc, char **argv) {
         if (argc < 2) {
                 (void)(fprintf(stderr, "Usage: %s <debug_target>\n", argv[0]));
+                return EXIT_FAILURE;
         }
 
         const char *debuggee_name = argv[1];
 
+        if (is_relative_path(debuggee_name)) {
+                (void)(fprintf(stderr, "No relative paths allowed %s\n",
+                               debuggee_name));
+                return EXIT_FAILURE;
+        }
+
         if (!file_exists(debuggee_name)) {
-                (void)(fprintf(stderr, "Cannot find executable %s",
+                (void)(fprintf(stderr, "Cannot find executable %s\n",
                                debuggee_name));
                 return EXIT_FAILURE;
         }
@@ -38,11 +48,4 @@ int main(int argc, char **argv) {
 
         free_debugger(&dbg);
         return EXIT_SUCCESS;
-}
-
-bool file_exists(const char *filename) {
-        if (filename[0] == '.') {
-                return false;
-        }
-        return access(filename, F_OK | X_OK) == 0;
 }
