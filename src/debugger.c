@@ -81,6 +81,7 @@ void init_debugger(debugger *dbg, const char *debuggee_name) {
         dbg->dbgee.pid = -1;
         dbg->dbgee.name = debuggee_name;
         dbg->dbgee.state = IDLE;
+        dbg->dbgee.has_run = false;
 
         // Could be NULL. TODO: Catch this.
         dbg->dbgee.bp_handler = init_breakpoint_handler();
