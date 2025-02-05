@@ -21,6 +21,7 @@
 #define DR1_OFFSET offsetof(struct user, u_debugreg[1])
 #define DR2_OFFSET offsetof(struct user, u_debugreg[2])
 #define DR3_OFFSET offsetof(struct user, u_debugreg[3])
+#define DR6_OFFSET offsetof(struct user, u_debugreg[6])
 #define DR7_OFFSET offsetof(struct user, u_debugreg[7])
 
 enum {
@@ -55,6 +56,7 @@ enum {
         WATCHPOINT_LEN_4_BYTES = 0x3,
         WATCHPOINT_LEN_8_BYTES = 0x2,
         NSIG = 31,
+        LOWER_FOUR_BYTES_MASK = 0xF,
 };
 
 static inline unsigned long DR7_ENABLE_LOCAL(int bpno) {
@@ -765,6 +767,7 @@ void Help(void) {
         printf("  help                - Display this help message\n");
         printf("  exit                - Exit the debugger\n");
         printf("  clear               - Clear the screen\n");
+        printf("  !!                  - Repeat last command\n");
         printf("---------------------------------------------------------------"
                "\n");
 
@@ -2000,6 +2003,56 @@ bool is_catchpoint_event(debuggee *dbgee, size_t *bp_index_out,
         return false;
 }
 
+bool is_watchpoint(debuggee *dbgee, size_t *bp_index_out) {
+        unsigned long dr6;
+
+        if (_read_debug_register(dbgee->pid, DR6_OFFSET, &dr6) != 0) {
+                perror("Failed to read DR6");
+                return false;
+        }
+
+        if ((dr6 & LOWER_FOUR_BYTES_MASK) == 0) {
+                return false;
+        }
+
+        unsigned long dr0;
+        unsigned long dr1;
+        unsigned long dr2;
+        unsigned long dr3;
+        if (_read_debug_register(dbgee->pid, DR0_OFFSET, &dr0) != 0 ||
+            _read_debug_register(dbgee->pid, DR1_OFFSET, &dr1) != 0 ||
+            _read_debug_register(dbgee->pid, DR2_OFFSET, &dr2) != 0 ||
+            _read_debug_register(dbgee->pid, DR3_OFFSET, &dr3) != 0) {
+                return false;
+        }
+
+        for (size_t i = 0; i < dbgee->bp_handler->count; i++) {
+                breakpoint *bp = &dbgee->bp_handler->breakpoints[i];
+                if (bp->bp_t == WATCHPOINT) {
+                        unsigned long wp_addr = bp->data.wp.address;
+                        int dr_index = -1;
+
+                        if (dr0 == wp_addr) {
+                                dr_index = 0;
+                        } else if (dr1 == wp_addr) {
+                                dr_index = 1;
+                        } else if (dr2 == wp_addr) {
+                                dr_index = 2;
+                        } else if (dr3 == wp_addr) {
+                                dr_index = 3;
+                        }
+
+                        if (dr_index != -1 && (dr6 & (1UL << dr_index))) {
+                                if (bp_index_out) {
+                                        *bp_index_out = i;
+                                }
+                                return true;
+                        }
+                }
+        }
+        return false;
+}
+
 int handle_software_breakpoint(debuggee *dbgee, size_t bp_index) {
         breakpoint *bp = &dbgee->bp_handler->breakpoints[bp_index];
         unsigned long address = bp->data.sw_bp.address;
@@ -2074,6 +2127,15 @@ int handle_catchpoint_event(debuggee *dbgee, size_t bp_index) {
         const char *event_name = bp->data.cp_event.event_name;
 
         printf("Event catchpoint for '%s' triggered.\n", event_name);
+
+        return EXIT_SUCCESS;
+}
+
+int handle_watchpoint(debuggee *dbgee, size_t bp_index) {
+        breakpoint *bp = &dbgee->bp_handler->breakpoints[bp_index];
+        unsigned long address = bp->data.hw_bp.address;
+
+        printf("Watchpoint hit '%lx'.\n", address);
 
         return EXIT_SUCCESS;
 }

@@ -59,7 +59,9 @@ bool is_catchpoint_signal(debuggee *dbgee, size_t *bp_index_out,
                           int signal_number);
 bool is_catchpoint_event(debuggee *dbgee, size_t *bp_index_out,
                          unsigned long event_code);
+bool is_watchpoint(debuggee *dbgee, size_t *bp_index_out);
 int handle_software_breakpoint(debuggee *dbgee, size_t bp_index);
 int handle_hardware_breakpoint(debuggee *dbgee, size_t bp_index);
 int handle_catchpoint_signal(debuggee *dbgee, size_t bp_index);
 int handle_catchpoint_event(debuggee *dbgee, size_t bp_index);
+int handle_watchpoint(debuggee *dbgee, size_t bp_index);
