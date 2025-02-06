@@ -5,6 +5,7 @@
 #include <string.h>
 
 #include "breakpoint_handler.h"
+#include "colors.h"
 
 static void _alloc_new_capacity(breakpoint_handler *handler) {
         size_t new_capacity =
@@ -13,8 +14,9 @@ static void _alloc_new_capacity(breakpoint_handler *handler) {
             realloc(handler->breakpoints, new_capacity * sizeof(breakpoint));
 
         if (!new_breakpoints) {
-                (void)(fprintf(stderr, "Error: Failed to allocate "
-                                       "memory for breakpoints.\n"));
+                (void)(fprintf(stderr,
+                               COLOR_RED "Error: Failed to allocate memory for "
+                                         "breakpoints.\n" COLOR_RESET));
                 exit(EXIT_FAILURE);
         }
 
@@ -123,10 +125,12 @@ size_t add_catchpoint_event(breakpoint_handler *handler,
         for (size_t i = 0; i < handler->count; ++i) {
                 breakpoint *bp = &handler->breakpoints[i];
                 if (bp != NULL && bp->bp_t == bp_type) {
-                        (void)(fprintf(stderr,
-                                       "Error: A catchpoint for event '%s' "
-                                       "already exists at index %zu.\n",
-                                       event_name, i));
+                        (void)(fprintf(
+                            stderr,
+                            COLOR_RED
+                            "Error: A catchpoint for event '%s' already exists "
+                            "at index %zu.\n" COLOR_RESET,
+                            event_name, i));
                         return (size_t)-1;
                 }
         }
@@ -146,8 +150,9 @@ size_t add_catchpoint_event(breakpoint_handler *handler,
 
 int remove_breakpoint(breakpoint_handler *handler, size_t index) {
         if (index >= handler->count) {
-                (void)(fprintf(stderr,
-                               "Error: breakpoint index out of range.\n"));
+                (void)(fprintf(
+                    stderr, COLOR_RED
+                    "Error: breakpoint index out of range.\n" COLOR_RESET));
                 return -1;
         }
 
@@ -160,14 +165,14 @@ int remove_breakpoint(breakpoint_handler *handler, size_t index) {
 
 void list_breakpoints(const breakpoint_handler *handler) {
         if (handler->count == 0) {
-                printf("No breakpoints set.\n");
+                printf(COLOR_YELLOW "No breakpoints set.\n" COLOR_RESET);
                 return;
         }
 
-        printf("Current breakpoints:\n");
-        printf("Idx\tType\t\tAddress\t\t\tDetails\n");
-        printf("---------------------------------------------------------------"
-               "\n");
+        printf(COLOR_CYAN "Current breakpoints:\n" COLOR_RESET);
+        printf(COLOR_YELLOW "Idx\tType\t\tAddress\t\t\tDetails\n" COLOR_RESET);
+        printf(COLOR_MAGENTA "-------------------------------------------------"
+                             "--------------\n" COLOR_RESET);
 
         for (size_t i = 0; i < handler->count; ++i) {
                 printf("%zu\t", i);

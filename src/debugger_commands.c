@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "colors.h"
 #include "debuggee.h"
 #include "debugger.h"
 #include "debugger_commands.h"
@@ -67,20 +68,24 @@ int handle_user_input(debugger *dbg, command_t cmd_type, // NOLINT
                       const char *arg) {
         switch (cmd_type) {
         case CLI_EXIT: {
-                char *confirm =
-                    linenoise("Are you sure you want to exit? (y/n): ");
+                char *confirm = linenoise(
+                    COLOR_RED
+                    "Are you sure you want to exit? (y/n): " COLOR_RESET);
                 if (confirm != NULL) {
                         if (confirm[0] == 'y' || confirm[0] == 'Y') {
                                 free_debugger(dbg);
-                                printf("Exiting debugger.\n");
+                                printf(COLOR_RED
+                                       "Exiting debugger.\n" COLOR_RESET);
                                 free(confirm);
                                 exit(EXIT_SUCCESS);
                         } else {
-                                printf("Exit canceled.\n");
+                                printf(COLOR_GREEN
+                                       "Exit canceled.\n" COLOR_RESET);
                         }
                         free(confirm);
                 } else {
-                        printf("\nExit canceled (no confirmation received).\n");
+                        printf(COLOR_YELLOW "\nExit canceled (no confirmation "
+                                            "received).\n" COLOR_RESET);
                 }
                 return PROMPT_USER_AGAIN;
         }
@@ -95,116 +100,137 @@ int handle_user_input(debugger *dbg, command_t cmd_type, // NOLINT
 
         case DBG_RUN:
                 if (Run(&dbg->dbgee) != 0) {
-                        printf("Run command failed.\n");
+                        printf(COLOR_RED "Run command failed.\n" COLOR_RESET);
                         return PROMPT_USER_AGAIN;
                 }
                 return DONT_PROMPT_USER_AGAIN;
 
         case DBG_CONTINUE:
                 if (Continue(&dbg->dbgee) != 0) {
-                        printf("Continue command failed.\n");
+                        printf(COLOR_RED
+                               "Continue command failed.\n" COLOR_RESET);
                         return PROMPT_USER_AGAIN;
                 }
                 return DONT_PROMPT_USER_AGAIN;
 
         case DBG_STEP:
                 if (Step(&dbg->dbgee) != 0) {
-                        printf("Failed to single step.\n");
+                        printf(COLOR_RED
+                               "Failed to single step.\n" COLOR_RESET);
                 }
                 return PROMPT_USER_AGAIN;
 
         case DBG_STEP_OVER:
                 if (StepOver(&dbg->dbgee) != 0) {
-                        printf("Failed to step over.\n");
+                        printf(COLOR_RED "Failed to step over.\n" COLOR_RESET);
                         return PROMPT_USER_AGAIN;
                 }
                 return DONT_PROMPT_USER_AGAIN;
 
         case DBG_STEP_OUT:
                 if (StepOut(&dbg->dbgee) != 0) {
-                        printf("Failed to step out.\n");
+                        printf(COLOR_RED "Failed to step out.\n" COLOR_RESET);
                 }
                 return DONT_PROMPT_USER_AGAIN;
 
         case DBG_SKIP:
                 if (arg == NULL) {
-                        printf("Usage: skip <n>\n");
+                        printf(COLOR_YELLOW "Usage: skip <n>\n" COLOR_RESET);
                         return PROMPT_USER_AGAIN;
                 }
                 if (Skip(&dbg->dbgee, arg) != 0) {
-                        printf("Failed to skip '%s' times.\n", arg);
+                        printf(COLOR_RED
+                               "Failed to skip '%s' times.\n" COLOR_RESET,
+                               arg);
                 }
                 return PROMPT_USER_AGAIN;
 
         case DBG_JUMP:
                 if (arg == NULL) {
-                        printf("Usage: jump "
-                               "<addr>|*<offset>|&<func_name>\n");
+                        printf(COLOR_YELLOW
+                               "Usage: jump "
+                               "<addr>|*<offset>|&<func_name>\n" COLOR_RESET);
                         return PROMPT_USER_AGAIN;
                 }
                 if (Jump(&dbg->dbgee, arg) != 0) {
-                        printf("Failed to jump to '%s'.\n", arg);
+                        printf(COLOR_RED
+                               "Failed to jump to '%s'.\n" COLOR_RESET,
+                               arg);
                 }
                 return PROMPT_USER_AGAIN;
 
         case DBG_TRACE:
                 if (arg == NULL) {
-                        printf("Usage: trace "
-                               "<addr>|*<offset>|&<func_name>\n");
+                        printf(COLOR_YELLOW
+                               "Usage: trace "
+                               "<addr>|*<offset>|&<func_name>\n" COLOR_RESET);
                         return PROMPT_USER_AGAIN;
                 }
                 if (Trace(&dbg->dbgee, arg) != 0) {
-                        printf("Failed to trace '%s'.\n", arg);
+                        printf(COLOR_RED "Failed to trace '%s'.\n" COLOR_RESET,
+                               arg);
                 }
                 return PROMPT_USER_AGAIN;
 
         case DBG_REGISTERS:
                 if (Registers(&dbg->dbgee) != 0) {
-                        printf("Failed to retrieve registers.\n");
+                        printf(COLOR_RED
+                               "Failed to retrieve registers.\n" COLOR_RESET);
                 }
                 return PROMPT_USER_AGAIN;
 
         case DBG_BREAK:
                 if (arg == NULL) {
-                        printf("Usage: break "
-                               "<addr>|*<offset>|&<func_name>\n");
+                        printf(COLOR_YELLOW
+                               "Usage: break "
+                               "<addr>|*<offset>|&<func_name>\n" COLOR_RESET);
                         return PROMPT_USER_AGAIN;
                 }
                 if (SetSoftwareBreakpoint(&dbg->dbgee, arg) != 0) {
-                        printf("Failed to set software breakpoint at '%s'.\n",
+                        printf(COLOR_RED "Failed to set software breakpoint at "
+                                         "'%s'.\n" COLOR_RESET,
                                arg);
                 }
                 return PROMPT_USER_AGAIN;
 
         case DBG_HBREAK:
                 if (arg == NULL) {
-                        printf("Usage: hbreak "
-                               "<addr>|*<offset>|&<func_name>\n");
+                        printf(COLOR_YELLOW
+                               "Usage: hbreak "
+                               "<addr>|*<offset>|&<func_name>\n" COLOR_RESET);
                         return PROMPT_USER_AGAIN;
                 }
                 if (SetHardwareBreakpoint(&dbg->dbgee, arg) != 0) {
-                        printf("Failed to set hardware breakpoint at '%s'.\n",
+                        printf(COLOR_RED "Failed to set hardware breakpoint at "
+                                         "'%s'.\n" COLOR_RESET,
                                arg);
                 }
                 return PROMPT_USER_AGAIN;
 
         case DBG_WATCH:
                 if (arg == NULL) {
-                        printf("Usage: watch <addr>|*<offset>|&<glob_var>\n");
+                        printf(COLOR_YELLOW
+                               "Usage: watch "
+                               "<addr>|*<offset>|&<glob_var>\n" COLOR_RESET);
                         return PROMPT_USER_AGAIN;
                 }
                 if (SetWatchpoint(&dbg->dbgee, arg) != 0) {
-                        printf("Failed to set watchpoint at '%s'.\n", arg);
+                        printf(
+                            COLOR_RED
+                            "Failed to set watchpoint at '%s'.\n" COLOR_RESET,
+                            arg);
                 }
                 return PROMPT_USER_AGAIN;
 
         case DBG_CATCH:
                 if (arg == NULL) {
-                        printf("Usage: catch <sig_num>\n");
+                        printf(COLOR_YELLOW
+                               "Usage: catch <sig_num>\n" COLOR_RESET);
                         return PROMPT_USER_AGAIN;
                 }
                 if (SetCatchpoint(&dbg->dbgee, arg) != 0) {
-                        printf("Failed to set catchpoint for signal '%s'.\n",
+                        printf(COLOR_RED "Failed to set catchpoint for signal "
+                                         "'%s'.\n" COLOR_RESET,
                                arg);
                 }
                 return PROMPT_USER_AGAIN;
@@ -215,45 +241,52 @@ int handle_user_input(debugger *dbg, command_t cmd_type, // NOLINT
 
         case DBG_REMOVE_BREAKPOINT:
                 if (arg == NULL) {
-                        printf("Usage: remove <idx>\n");
+                        printf(COLOR_YELLOW
+                               "Usage: remove <idx>\n" COLOR_RESET);
                         return PROMPT_USER_AGAIN;
                 }
                 if (RemoveBreakpoint(&dbg->dbgee, arg) != 0) {
-                        printf("Failed to remove breakpoint at index: <%s>.\n",
+                        printf(COLOR_RED "Failed to remove breakpoint at "
+                                         "index: <%s>.\n" COLOR_RESET,
                                arg);
                 };
                 return PROMPT_USER_AGAIN;
 
         case DBG_DUMP:
                 if (Dump(&dbg->dbgee) != 0) {
-                        printf("Failed to dump memory.\n");
+                        printf(COLOR_RED
+                               "Failed to dump memory.\n" COLOR_RESET);
                 }
                 return PROMPT_USER_AGAIN;
 
         case DBG_DIS:;
                 if (Disassemble(&dbg->dbgee) != 0) {
-                        printf("Failed to disassemble memory.\n");
+                        printf(COLOR_RED
+                               "Failed to disassemble memory.\n" COLOR_RESET);
                 }
                 return PROMPT_USER_AGAIN;
 
         case DBG_GLOB_VARS:
                 if (DisplayGlobalVariables(&dbg->dbgee) != 0) {
-                        printf("Failed to display global variables.\n");
+                        printf(COLOR_RED "Failed to display global "
+                                         "variables.\n" COLOR_RESET);
                 }
                 return PROMPT_USER_AGAIN;
 
         case DBG_FUNC_NAMES:
                 if (DisplayFunctionNames(&dbg->dbgee) != 0) {
-                        printf("Failed to display function names.\n");
+                        printf(
+                            COLOR_RED
+                            "Failed to display function names.\n" COLOR_RESET);
                 }
                 return PROMPT_USER_AGAIN;
 
         case UNKNOWN:
-                printf("Unknown command.\n");
+                printf(COLOR_YELLOW "Unknown command.\n" COLOR_RESET);
                 return PROMPT_USER_AGAIN;
 
         default:
-                printf("Unhandled command type.\n");
+                printf(COLOR_RED "Unhandled command type.\n" COLOR_RESET);
                 return PROMPT_USER_AGAIN;
         }
 }
@@ -266,6 +299,9 @@ int read_and_handle_user_command(debugger *dbg) {
         linenoiseSetCompletionCallback(_completion);
 
         while (true) {
+                printf(COLOR_RESET);
+                (void)(fflush(stdout));
+
                 input = linenoise("Z: ");
                 if (input == NULL) {
                         if (errno == EAGAIN) {
@@ -278,12 +314,15 @@ int read_and_handle_user_command(debugger *dbg) {
 
                 if (strcmp(input, "!!") == 0) {
                         if (last_command) {
-                                printf("Repeating last command: %s\n",
-                                       last_command);
+                                printf(
+                                    COLOR_GREEN
+                                    "Repeating last command: %s\n" COLOR_RESET,
+                                    last_command);
                                 free(input);
                                 input = strdup(last_command);
                         } else {
-                                printf("No previous command to repeat.\n");
+                                printf(COLOR_YELLOW "No previous command to "
+                                                    "repeat.\n" COLOR_RESET);
                                 free(input);
                                 continue;
                         }
