@@ -14,23 +14,23 @@
 #include "debuggee.h"
 #include "debugger.h"
 #include "debugger_commands.h"
+#include "ui.h"
 
 int set_ld_preload(const char *libs[], size_t count) {
         if (count == 0) {
-                (void)(fprintf(stderr,
-                               "No libraries provided to set_ld_preload.\n"));
+                (void)(fprintf(
+                    stderr, COLOR_RED
+                    "No libraries provided to set_ld_preload.\n" COLOR_RESET));
                 return -1;
         }
 
         char exe_path[PATH_MAX];
         ssize_t len =
             readlink("/proc/self/exe", exe_path, sizeof(exe_path) - 1);
-
         if (len == -1) {
                 perror("readlink");
                 return -1;
         }
-
         exe_path[len] = '\0';
 
         char *dir = dirname(exe_path);
@@ -47,15 +47,19 @@ int set_ld_preload(const char *libs[], size_t count) {
                 if ((unsigned long)(snprintf(preload_path, sizeof(preload_path),
                                              "%s/%s", dir, libs[i])) >=
                     sizeof(preload_path)) {
-                        (void)(fprintf(stderr, "Path too long for %s\n",
+                        (void)(fprintf(stderr,
+                                       COLOR_RED
+                                       "Path too long for %s\n" COLOR_RESET,
                                        libs[i]));
                         return -1;
                 }
 
                 if (access(preload_path, R_OK) == -1) {
-                        (void)(fprintf(stderr,
-                                       "Shared library not found at: %s\n",
-                                       preload_path));
+                        (void)(fprintf(
+                            stderr,
+                            COLOR_RED
+                            "Shared library not found at: %s\n" COLOR_RESET,
+                            preload_path));
                         return -1;
                 }
 
@@ -92,27 +96,35 @@ void init_debugger(debugger *dbg, const char *debuggee_name) {
 void free_debugger(debugger *dbg) {
         if (dbg->state == ATTACHED) {
                 if (ptrace(PTRACE_DETACH, dbg->dbgee.pid, NULL, NULL) == -1) {
-                        (void)(fprintf(
-                            stderr,
-                            "Failed to detach from child with PID %d: %s\n",
-                            dbg->dbgee.pid, strerror(errno)));
+                        (void)(fprintf(stderr,
+                                       COLOR_RED
+                                       "Failed to detach from child with PID "
+                                       "%d: %s\n" COLOR_RESET,
+                                       dbg->dbgee.pid, strerror(errno)));
                 } else {
-                        printf("Detached from child with PID: %d\n",
+                        printf(COLOR_CYAN
+                               "Detached from child with PID: %d\n" COLOR_RESET,
                                dbg->dbgee.pid);
                 }
         }
 
-        if ((dbg->dbgee.state == RUNNING) || (dbg->dbgee.state == STOPPED)) {
+        if (dbg->dbgee.state == RUNNING || dbg->dbgee.state == STOPPED ||
+            dbg->dbgee.state == SINGLE_STEPPING) {
                 if (kill(dbg->dbgee.pid, SIGKILL) == -1) {
                         (void)(fprintf(stderr,
-                                       "Failed to kill child with PID %d: %s\n",
+                                       COLOR_RED "Failed to kill child with "
+                                                 "PID %d: %s\n" COLOR_RESET,
                                        dbg->dbgee.pid, strerror(errno)));
                 } else {
-                        printf("Killed child with PID: %d\n", dbg->dbgee.pid);
+                        printf(COLOR_CYAN
+                               "Killed child with PID: %d\n" COLOR_RESET,
+                               dbg->dbgee.pid);
                 }
         } else if (dbg->dbgee.state == TERMINATED) {
-                printf("Child with PID %d has already terminated.\n",
-                       dbg->dbgee.pid);
+                printf(
+                    COLOR_YELLOW
+                    "Child with PID %d has already terminated.\n" COLOR_RESET,
+                    dbg->dbgee.pid);
         }
 
         dbg->dbgee.pid = -1;
@@ -135,7 +147,9 @@ int start_debuggee(debugger *dbg) {
                 size_t lib_count = sizeof(libs) / sizeof(libs[0]);
 
                 if (set_ld_preload(libs, lib_count) != 0) {
-                        (void)(fprintf(stderr, "Failed to set LD_PRELOAD.\n"));
+                        (void)(fprintf(
+                            stderr, COLOR_RED
+                            "Failed to set LD_PRELOAD.\n" COLOR_RESET));
                         exit(EXIT_FAILURE);
                 }
 
@@ -149,7 +163,9 @@ int start_debuggee(debugger *dbg) {
         } else {
                 dbg->dbgee.pid = pid;
                 dbg->dbgee.state = RUNNING;
-                printf("Child process started with PID %d\n", dbg->dbgee.pid);
+                printf(COLOR_CYAN
+                       "Child process started with PID %d\n" COLOR_RESET,
+                       dbg->dbgee.pid);
         }
 
         return EXIT_SUCCESS;
@@ -157,13 +173,12 @@ int start_debuggee(debugger *dbg) {
 
 int trace_debuggee(debugger *dbg) { // NOLINT
         bool ptrace_options_set = false;
-        bool main_startup_breakpoint_set = false;
+        bool entry_startup_breakpoint_set = false;
 
         dbg->state = ATTACHED;
         while (dbg->state == ATTACHED) {
                 int status;
                 pid_t pid = waitpid(dbg->dbgee.pid, &status, 0);
-
                 if (pid == -1) {
                         if (errno == EINTR) {
                                 continue;
@@ -188,16 +203,19 @@ int trace_debuggee(debugger *dbg) { // NOLINT
                 }
 
                 if (WIFEXITED(status)) {
-                        printf("Child %d exited with status %d.\n", pid,
-                               WEXITSTATUS(status));
+                        printf(COLOR_YELLOW
+                               "Child %d exited with status %d.\n" COLOR_RESET,
+                               pid, WEXITSTATUS(status));
                         dbg->state = DETACHED;
                         dbg->dbgee.state = TERMINATED;
                         break;
                 }
 
                 if (WIFSIGNALED(status)) {
-                        printf("Child %d was killed by signal %d.\n", pid,
-                               WTERMSIG(status));
+                        printf(
+                            COLOR_YELLOW
+                            "Child %d was killed by signal %d.\n" COLOR_RESET,
+                            pid, WTERMSIG(status));
                         dbg->state = DETACHED;
                         dbg->dbgee.state = TERMINATED;
                         break;
@@ -205,18 +223,18 @@ int trace_debuggee(debugger *dbg) { // NOLINT
 
                 if (WIFSTOPPED(status)) {
                         int sig = WSTOPSIG(status);
-
                         unsigned long event =
                             (status >> PTRACE_EVENT_SHIFT) & PTRACE_EVENT_MASK;
                         dbg->dbgee.state = STOPPED;
 
-                        if (main_startup_breakpoint_set == false) {
+                        if (entry_startup_breakpoint_set == false) {
                                 unsigned long entry_address =
                                     get_entry_absolute_address(&dbg->dbgee);
                                 if (entry_address == 0) {
-                                        (void)(fprintf(stderr,
-                                                       "Failed to retrieve the "
-                                                       "entry point.\n"));
+                                        (void)(fprintf(
+                                            stderr, COLOR_RED
+                                            "Failed to retrieve the entry "
+                                            "point.\n" COLOR_RESET));
                                         return EXIT_FAILURE;
                                 }
 
@@ -225,8 +243,9 @@ int trace_debuggee(debugger *dbg) { // NOLINT
                                     EXIT_SUCCESS) {
                                         (void)(fprintf(
                                             stderr,
-                                            "Failed to set temporary "
-                                            "breakpoint at 0x%lx.\n",
+                                            COLOR_RED "Failed to set temporary "
+                                                      "breakpoint at "
+                                                      "0x%lx.\n" COLOR_RESET,
                                             entry_address));
                                         return EXIT_FAILURE;
                                 }
@@ -238,7 +257,7 @@ int trace_debuggee(debugger *dbg) { // NOLINT
                                         return EXIT_FAILURE;
                                 }
 
-                                main_startup_breakpoint_set = true;
+                                entry_startup_breakpoint_set = true;
                                 continue;
                         }
 
@@ -295,8 +314,10 @@ int trace_debuggee(debugger *dbg) { // NOLINT
                                                 return EXIT_FAILURE;
                                         }
                                 } else {
-                                        printf("Ignoring event %lx.\n\r",
-                                               event);
+                                        printf(
+                                            COLOR_YELLOW
+                                            "Ignoring event %lx.\n" COLOR_RESET,
+                                            event);
                                         if (ptrace(PTRACE_CONT, dbg->dbgee.pid,
                                                    NULL, NULL) == -1) {
                                                 perror("ptrace CONT to ignore "
@@ -311,30 +332,32 @@ int trace_debuggee(debugger *dbg) { // NOLINT
                             dbg->dbgee.state != SINGLE_STEPPING) {
 
                                 // If we receive a SIGTRAP that is neither from
-                                // a breakpoint nor a single-step event, it must
-                                // have originated from the debuggee rather than
-                                // our debugger. To counter anti-debugging
-                                // techniques, we need to forward it back to the
-                                // debuggee.
+                                // a breakpoint nor a single-step event, forward
+                                // it back to the debuggee to counter
+                                // anti-debugging techniques.
                                 if (sig == SIGTRAP) {
-                                        printf("[INFO] Sending SIGTRAP back to "
-                                               "debuggee.\n\r");
-
+                                        printf(COLOR_CYAN
+                                               "[INFO] Sending SIGTRAP back to "
+                                               "debuggee.\n" COLOR_RESET);
                                         if (ptrace(PTRACE_CONT, dbg->dbgee.pid,
                                                    NULL, SIGTRAP) == -1) {
                                                 perror("ptrace CONT to send "
                                                        "SIGTRAP");
                                                 return EXIT_FAILURE;
                                         }
+                                        dbg->dbgee.state = RUNNING;
                                         continue;
                                 }
 
-                                printf("Ignoring signal %d.\n\r", sig);
+                                printf(COLOR_YELLOW
+                                       "Ignoring signal %d.\n" COLOR_RESET,
+                                       sig);
                                 if (ptrace(PTRACE_CONT, dbg->dbgee.pid, NULL,
                                            NULL) == -1) {
                                         perror("ptrace CONT to ignore signal");
                                         return EXIT_FAILURE;
                                 }
+                                dbg->dbgee.state = RUNNING;
                                 continue;
                         }
 

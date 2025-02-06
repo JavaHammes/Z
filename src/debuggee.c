@@ -16,6 +16,7 @@
 #include <unistd.h>
 
 #include "debuggee.h"
+#include "ui.h"
 
 #define DR0_OFFSET offsetof(struct user, u_debugreg[0])
 #define DR1_OFFSET offsetof(struct user, u_debugreg[1])
@@ -57,6 +58,7 @@ enum {
         WATCHPOINT_LEN_8_BYTES = 0x2,
         NSIG = 31,
         LOWER_FOUR_BYTES_MASK = 0xF,
+        DEFAULT_SEPERATOR_LENGTH = 80,
 };
 
 static inline unsigned long DR7_ENABLE_LOCAL(int bpno) {
@@ -72,8 +74,9 @@ static inline unsigned long DR7_LEN_SHIFT(int bpno) {
 }
 
 static bool should_remove_breakpoints(const debuggee *dbgee) {
-        printf("There are %zu breakpoints set. Do you want to "
-               "remove all breakpoints and run until termination? (y/N): ",
+        printf(COLOR_YELLOW "There are %zu breakpoints set. Do you want to "
+                            "remove all breakpoints and run until termination? "
+                            "(y/N): " COLOR_RESET,
                dbgee->bp_handler->count);
 
         char response[RESPONSE_BUFFER_SIZE];
@@ -199,15 +202,16 @@ static int _remove_all_breakpoints(debuggee *dbgee) {
                 if (snprintf(index_str, sizeof(index_str), "%zu", last_index) <
                     0) {
                         (void)(fprintf(stderr,
-                                       "Failed to format breakpoint index.\n"));
+                                       COLOR_RED "Failed to format breakpoint "
+                                                 "index.\n" COLOR_RESET));
                         return EXIT_FAILURE;
                 }
 
                 if (RemoveBreakpoint(dbgee, index_str) != EXIT_SUCCESS) {
-                        (void)(fprintf(
-                            stderr,
-                            "Failed to remove breakpoint at index %zu.\n",
-                            last_index));
+                        (void)(fprintf(stderr,
+                                       COLOR_RED "Failed to remove breakpoint "
+                                                 "at index %zu.\n" COLOR_RESET,
+                                       last_index));
                         return EXIT_FAILURE;
                 }
         }
@@ -232,10 +236,10 @@ static bool _breakpoint_exists(const debuggee *dbgee, unsigned long address) {
 static bool _is_call_instruction(debuggee *dbgee, unsigned long rip) {
         unsigned char buf[MAX_X86_INSTRUCT_LEN];
         if (_read_memory(dbgee->pid, rip, buf, sizeof(buf)) != 0) {
-                (void)(fprintf(
-                    stderr,
-                    "Failed to read memory at 0x%lx for instruction check.\n",
-                    rip));
+                (void)(fprintf(stderr,
+                               COLOR_RED "Failed to read memory at 0x%lx for "
+                                         "instruction check.\n" COLOR_RESET,
+                               rip));
                 return false;
         }
 
@@ -244,9 +248,9 @@ static bool _is_call_instruction(debuggee *dbgee, unsigned long rip) {
         size_t count;
 
         if (cs_open(CS_ARCH_X86, CS_MODE_64, &handle) != CS_ERR_OK) {
-                (void)(fprintf(
-                    stderr,
-                    "Failed to initialize Capstone for instruction check.\n"));
+                (void)(fprintf(stderr,
+                               COLOR_RED "Failed to initialize Capstone for "
+                                         "instruction check.\n" COLOR_RESET));
                 return false;
         }
 
@@ -298,9 +302,10 @@ static unsigned long _get_load_base(debuggee *dbgee) {
         (void)(fclose(maps));
 
         if (base_address == 0) {
-                (void)(fprintf(
-                    stderr, "Failed to find base address for %s in pid %d.\n",
-                    dbgee->name, dbgee->pid));
+                (void)(fprintf(stderr,
+                               COLOR_RED "Failed to find base address for %s "
+                                         "in pid %d.\n" COLOR_RESET,
+                               dbgee->name, dbgee->pid));
         }
 
         return base_address;
@@ -354,8 +359,9 @@ static unsigned long _get_module_base_address(pid_t pid, unsigned long rip,
 
         if (base_address == 0) {
                 (void)(fprintf(stderr,
+                               COLOR_RED
                                "Failed to find base address containing RIP "
-                               "0x%lx in pid %d.\n",
+                               "0x%lx in pid %d.\n" COLOR_RESET,
                                rip, pid));
         }
 
@@ -365,13 +371,16 @@ static unsigned long _get_module_base_address(pid_t pid, unsigned long rip,
 static unsigned long _get_symbol_offset(debuggee *dbgee,
                                         const char *symbol_name) {
         if (symbol_name == NULL) {
-                (void)(fprintf(stderr, "Symbol name cannot be NULL.\n"));
+                (void)(fprintf(stderr, COLOR_RED
+                               "Symbol name cannot be NULL.\n" COLOR_RESET));
                 return 0;
         }
 
         elf_symtab symtab_struct;
         if (!read_elf_symtab(dbgee->name, &symtab_struct)) {
-                (void)(fprintf(stderr, "Failed to read ELF symbol tables.\n"));
+                (void)(fprintf(
+                    stderr, COLOR_RED
+                    "Failed to read ELF symbol tables.\n" COLOR_RESET));
                 return 0;
         }
 
@@ -397,7 +406,9 @@ static unsigned long _get_symbol_offset(debuggee *dbgee,
         }
 
         if (!found) {
-                (void)(fprintf(stderr, "'%s' symbol not found in %s.\n",
+                (void)(fprintf(stderr,
+                               COLOR_RED
+                               "'%s' symbol not found in %s.\n" COLOR_RESET,
                                symbol_name, dbgee->name));
         }
 
@@ -412,7 +423,8 @@ static unsigned long _get_symbol_offset(debuggee *dbgee,
 
 static int _step_and_wait(debuggee *dbgee) { // NOLINT
         if (Step(dbgee) != EXIT_SUCCESS) {
-                (void)(fprintf(stderr, "Failed to single step.\n"));
+                (void)(fprintf(stderr, COLOR_RED
+                               "Failed to single step.\n" COLOR_RESET));
                 return EXIT_FAILURE;
         }
 
@@ -423,15 +435,17 @@ static int _step_and_wait(debuggee *dbgee) { // NOLINT
         }
 
         if (WIFEXITED(status)) {
-                printf("Debuggee %d exited with status %d.\n", dbgee->pid,
-                       WEXITSTATUS(status));
+                printf(COLOR_YELLOW
+                       "Debuggee %d exited with status %d.\n" COLOR_RESET,
+                       dbgee->pid, WEXITSTATUS(status));
                 dbgee->state = TERMINATED;
                 return EXIT_FAILURE;
         }
 
         if (WIFSIGNALED(status)) {
-                printf("Debuggee %d was killed by signal %d.\n", dbgee->pid,
-                       WTERMSIG(status));
+                printf(COLOR_YELLOW
+                       "Debuggee %d was killed by signal %d.\n" COLOR_RESET,
+                       dbgee->pid, WTERMSIG(status));
                 dbgee->state = TERMINATED;
                 return EXIT_FAILURE;
         }
@@ -481,12 +495,16 @@ static int _step_and_wait(debuggee *dbgee) { // NOLINT
                                         return EXIT_FAILURE;
                                 }
                         } else {
-                                printf("Ignoring event %lx.\n\r", event);
+                                printf(COLOR_MAGENTA
+                                       "Ignoring event %lx.\n" COLOR_RESET,
+                                       event);
                         }
                 }
 
                 if (!breakpoint_handled && dbgee->state != SINGLE_STEPPING) {
-                        printf("Ignoring signal %d.\n\r", sig);
+                        printf(COLOR_MAGENTA
+                               "Ignoring signal %d.\n" COLOR_RESET,
+                               sig);
                 }
         }
 
@@ -496,7 +514,8 @@ static int _step_and_wait(debuggee *dbgee) { // NOLINT
 
 static int _step_replaced_instruction(debuggee *dbgee) {
         if (Step(dbgee) != EXIT_SUCCESS) {
-                (void)(fprintf(stderr, "Failed to execute single step.\n"));
+                (void)(fprintf(stderr, COLOR_RED
+                               "Failed to execute single step.\n" COLOR_RESET));
                 return EXIT_FAILURE;
         }
         dbgee->state = STOPPED;
@@ -508,14 +527,16 @@ static int _step_replaced_instruction(debuggee *dbgee) {
         }
 
         if (WIFEXITED(wait_status)) {
-                printf("Debuggee exited with status %d during single step.\n",
+                printf(COLOR_YELLOW "Debuggee exited with status %d during "
+                                    "single step.\n" COLOR_RESET,
                        WEXITSTATUS(wait_status));
                 dbgee->state = TERMINATED;
                 return EXIT_FAILURE;
         }
 
         if (WIFSIGNALED(wait_status)) {
-                printf("Debuggee was killed by signal %d during single step.\n",
+                printf(COLOR_YELLOW "Debuggee was killed by signal %d during "
+                                    "single step.\n" COLOR_RESET,
                        WTERMSIG(wait_status));
                 dbgee->state = TERMINATED;
                 return EXIT_FAILURE;
@@ -525,15 +546,16 @@ static int _step_replaced_instruction(debuggee *dbgee) {
                 int sig = WSTOPSIG(wait_status);
                 if (sig != SIGTRAP) {
                         (void)(fprintf(stderr,
+                                       COLOR_RED
                                        "Received unexpected signal %d during "
-                                       "single step.\n",
+                                       "single step.\n" COLOR_RESET,
                                        sig));
                         return EXIT_FAILURE;
                 }
         } else {
-                (void)(fprintf(
-                    stderr,
-                    "Debuggee did not stop as expected during single step.\n"));
+                (void)(fprintf(stderr,
+                               COLOR_RED "Debuggee did not stop as expected "
+                                         "during single step.\n" COLOR_RESET));
                 return EXIT_FAILURE;
         }
 
@@ -612,8 +634,9 @@ static bool _get_available_debug_register(debuggee *dbgee, int *bpno,
 static int _set_rip(debuggee *dbgee, unsigned long rip) {
         if (!_is_valid_address(dbgee, rip)) {
                 (void)(fprintf(stderr,
+                               COLOR_RED
                                "Error: Invalid RIP address 0x%lx. Address is "
-                               "not mapped or not executable.\n",
+                               "not mapped or not executable.\n" COLOR_RESET,
                                rip));
                 return EXIT_FAILURE;
         }
@@ -686,9 +709,9 @@ static int _replace_sw_breakpoint(pid_t pid, uint64_t addr, uint64_t old_byte) {
 static bool _parse_breakpoint_argument(debuggee *dbgee, const char *arg,
                                        uintptr_t *address_out) {
         if (arg == NULL || address_out == NULL) {
-                (void)(fprintf(
-                    stderr,
-                    "Invalid arguments to parse_breakpoint_argument.\n"));
+                (void)(fprintf(stderr, COLOR_RED
+                               "Invalid arguments to "
+                               "parse_breakpoint_argument.\n" COLOR_RESET));
                 return false;
         }
 
@@ -700,23 +723,26 @@ static bool _parse_breakpoint_argument(debuggee *dbgee, const char *arg,
                 char *endptr;
                 uintptr_t offset = strtoull(arg + 1, &endptr, 0);
                 if (*endptr != '\0') {
-                        (void)(fprintf(stderr, "Invalid offset format: %s\n",
-                                       arg + 1));
+                        (void)(fprintf(
+                            stderr,
+                            COLOR_RED "Invalid offset format: %s\n" COLOR_RESET,
+                            arg + 1));
                         return false;
                 }
 
                 if (_read_rip(dbgee, &rip) != 0) {
-                        (void)(fprintf(stderr,
-                                       "Failed to retrieve current RIP.\n"));
+                        (void)(fprintf(
+                            stderr, COLOR_RED
+                            "Failed to retrieve current RIP.\n" COLOR_RESET));
                         return false;
                 }
 
                 base_address = _get_module_base_address(
                     dbgee->pid, rip, module_name, sizeof(module_name));
                 if (base_address == 0) {
-                        (void)(fprintf(stderr,
+                        (void)(fprintf(stderr, COLOR_RED
                                        "Failed to retrieve base address for "
-                                       "offset calculation.\n"));
+                                       "offset calculation.\n" COLOR_RESET));
                         return false;
                 }
 
@@ -724,15 +750,17 @@ static bool _parse_breakpoint_argument(debuggee *dbgee, const char *arg,
         } else if (arg[0] == '&') {
                 unsigned long func_offset = _get_symbol_offset(dbgee, arg + 1);
                 if (func_offset == 0) {
-                        (void)(fprintf(stderr,
-                                       "Failed to get func symbol offset.\n"));
+                        (void)(fprintf(
+                            stderr, COLOR_RED
+                            "Failed to get func symbol offset.\n" COLOR_RESET));
                         return false;
                 }
 
                 unsigned long base_address = _get_load_base(dbgee);
                 if (base_address == 0) {
-                        (void)(fprintf(stderr,
-                                       "Failed to get base address.\n"));
+                        (void)(fprintf(
+                            stderr, COLOR_RED
+                            "Failed to get base address.\n" COLOR_RESET));
                         return false;
                 }
 
@@ -742,8 +770,11 @@ static bool _parse_breakpoint_argument(debuggee *dbgee, const char *arg,
 
                 uintptr_t address = strtoull(arg, &endptr, 0);
                 if (*endptr != '\0') {
-                        (void)(fprintf(stderr, "Invalid address format: %s\n",
-                                       arg));
+                        (void)(fprintf(
+                            stderr,
+                            COLOR_RED
+                            "Invalid address format: %s\n" COLOR_RESET,
+                            arg));
                         return false;
                 }
 
@@ -758,93 +789,107 @@ static bool _parse_breakpoint_argument(debuggee *dbgee, const char *arg,
 }
 
 void Help(void) {
-        printf("Z Anti-Anti-Debugger - Command List:\n");
-        printf("==============================================================="
-               "\n");
-        printf("General Commands:\n");
-        printf("---------------------------------------------------------------"
-               "\n");
-        printf("  help                - Display this help message\n");
-        printf("  exit                - Exit the debugger\n");
-        printf("  clear               - Clear the screen\n");
-        printf("  !!                  - Repeat last command\n");
-        printf("---------------------------------------------------------------"
-               "\n");
+        printf(COLOR_CYAN "Z Anti-Anti-Debugger - Command List:\n" COLOR_RESET);
+        print_separator_large();
 
-        printf("Execution Commands:\n");
-        printf("---------------------------------------------------------------"
-               "\n");
-        printf("  run                 - Run the debuggee program\n");
-        printf("  con                 - Continue execution of the debuggee\n");
-        printf("  step                - Execute the next instruction (single "
-               "step)\n");
-        printf("  over                - Step over the current instruction\n");
-        printf("  out                 - Step out of the current function\n");
-        printf("  skip <n>            - Advances instruction pointer by <n> "
-               "instructions\n");
-        printf("  jump <addr>         - Execute until <addr>\n");
+        printf(COLOR_YELLOW "General Commands:\n" COLOR_RESET);
+        print_separator();
         printf(
-            "  jump *<offset>      - Execute until base_address + <offset>\n");
-        printf(
-            "  jump &<func_name>   - Execute until base_address + <offset>\n");
-        printf("  trace <addr>        - Trace execution starting at <addr>\n");
-        printf("  trace *<offset>     - Trace execution starting at "
-               "base_address + <offset>\n");
-        printf("  trace &<func_name>  - Trace execution starting at address of "
-               "function <func_name>\n");
-        printf("---------------------------------------------------------------"
-               "\n");
+            COLOR_GREEN
+            "  help                - Display this help message\n" COLOR_RESET);
+        printf(COLOR_GREEN
+               "  exit                - Exit the debugger\n" COLOR_RESET);
+        printf(COLOR_GREEN
+               "  clear               - Clear the screen\n" COLOR_RESET);
+        printf(COLOR_GREEN
+               "  !!                  - Repeat last command\n" COLOR_RESET);
+        print_separator();
 
-        printf("Breakpoint Commands:\n");
-        printf("---------------------------------------------------------------"
-               "\n");
-        printf("  points              - List all breakpoints\n");
-        printf("  break <addr>        - Set a software breakpoint at <addr>\n");
-        printf("  break *<offset>     - Set a software breakpoint at "
-               "base_address + <offset>\n");
-        printf("  break &<func_name>  - Set a software breakpoint at the "
-               "address of function <func_name>\n");
-        printf("  hbreak <addr>       - Set a hardware breakpoint at <addr>\n");
-        printf("  hbreak *<offset>    - Set a hardware breakpoint at "
-               "base_address + <offset>\n");
-        printf("  hbreak &<func_name> - Set a hardware breakpoint at the "
-               "address of function <func_name>\n");
-        printf("  watch <addr>        - Set a watchpoint on memory address "
-               "<addr> for read/write access\n");
-        printf("  watch *<offset>     - Set a watchpoint at base_address + "
-               "<offset> for read/write access\n");
-        printf("  watch &<var_name>   - Set a watchpoint on global variable "
-               "<var_name> for read/write access\n");
-        printf("  catch <sig_num>     - Set a catchpoint for signal number "
-               "<sig_num>\n");
-        printf("  catch <event_name>  - Set a catchpoint for process events"
-               ": fork, vfork, clone, exec, exit\n");
+        printf(COLOR_YELLOW "Execution Commands:\n" COLOR_RESET);
+        print_separator();
         printf(
-            "  remove <idx>        - Remove the breakpoint at index <idx>\n");
-        printf("---------------------------------------------------------------"
-               "\n");
+            COLOR_GREEN
+            "  run                 - Run the debuggee program\n" COLOR_RESET);
+        printf(COLOR_GREEN "  con                 - Continue execution of the "
+                           "debuggee\n" COLOR_RESET);
+        printf(COLOR_GREEN "  step                - Execute the next "
+                           "instruction (single step)\n" COLOR_RESET);
+        printf(COLOR_GREEN "  over                - Step over the current "
+                           "instruction\n" COLOR_RESET);
+        printf(COLOR_GREEN "  out                 - Step out of the current "
+                           "function\n" COLOR_RESET);
+        printf(COLOR_GREEN "  skip <n>            - Advances instruction "
+                           "pointer by <n> instructions\n" COLOR_RESET);
+        printf(COLOR_GREEN
+               "  jump <addr>         - Execute until <addr>\n" COLOR_RESET);
+        printf(COLOR_GREEN "  jump *<offset>      - Execute until base_address "
+                           "+ <offset>\n" COLOR_RESET);
+        printf(COLOR_GREEN "  jump &<func_name>   - Execute until base_address "
+                           "+ <offset>\n" COLOR_RESET);
+        printf(COLOR_GREEN "  trace <addr>        - Trace execution starting "
+                           "at <addr>\n" COLOR_RESET);
+        printf(COLOR_GREEN "  trace *<offset>     - Trace execution starting "
+                           "at base_address + <offset>\n" COLOR_RESET);
+        printf(COLOR_GREEN "  trace &<func_name>  - Trace execution starting "
+                           "at address of function <func_name>\n" COLOR_RESET);
+        print_separator();
 
-        printf("Inspection Commands:\n");
-        printf("---------------------------------------------------------------"
-               "\n");
-        printf("  regs                - Display CPU registers (general-purpose "
-               "and "
-               "debug)\n");
-        printf("  dump                - Dump memory at the current instruction "
-               "pointer\n");
-        printf("  dis                 - Disassemble memory at the current "
-               "instruction pointer\n");
-        printf("  vars                - Display global variables and their "
-               "values\n");
-        printf("  funcs               - List function names with addresses\n");
-        printf("==============================================================="
-               "\n");
+        printf(COLOR_YELLOW "Breakpoint Commands:\n" COLOR_RESET);
+        print_separator();
+        printf(COLOR_GREEN
+               "  points              - List all breakpoints\n" COLOR_RESET);
+        printf(COLOR_GREEN "  break <addr>        - Set a software breakpoint "
+                           "at <addr>\n" COLOR_RESET);
+        printf(COLOR_GREEN "  break *<offset>     - Set a software breakpoint "
+                           "at base_address + <offset>\n" COLOR_RESET);
+        printf(COLOR_GREEN
+               "  break &<func_name>  - Set a software breakpoint at the "
+               "address of function <func_name>\n" COLOR_RESET);
+        printf(COLOR_GREEN "  hbreak <addr>       - Set a hardware breakpoint "
+                           "at <addr>\n" COLOR_RESET);
+        printf(COLOR_GREEN "  hbreak *<offset>    - Set a hardware breakpoint "
+                           "at base_address + <offset>\n" COLOR_RESET);
+        printf(COLOR_GREEN
+               "  hbreak &<func_name> - Set a hardware breakpoint at the "
+               "address of function <func_name>\n" COLOR_RESET);
+        printf(COLOR_GREEN
+               "  watch <addr>        - Set a watchpoint on memory address "
+               "<addr> for read/write access\n" COLOR_RESET);
+        printf(COLOR_GREEN
+               "  watch *<offset>     - Set a watchpoint at base_address + "
+               "<offset> for read/write access\n" COLOR_RESET);
+        printf(COLOR_GREEN
+               "  watch &<var_name>   - Set a watchpoint on global variable "
+               "<var_name> for read/write access\n" COLOR_RESET);
+        printf(COLOR_GREEN "  catch <sig_num>     - Set a catchpoint for "
+                           "signal number <sig_num>\n" COLOR_RESET);
+        printf(COLOR_GREEN
+               "  catch <event_name>  - Set a catchpoint for process events: "
+               "fork, vfork, clone, exec, exit\n" COLOR_RESET);
+        printf(COLOR_GREEN "  remove <idx>        - Remove the breakpoint at "
+                           "index <idx>\n" COLOR_RESET);
+        print_separator();
+
+        printf(COLOR_YELLOW "Inspection Commands:\n" COLOR_RESET);
+        print_separator();
+        printf(COLOR_GREEN "  regs                - Display CPU registers "
+                           "(general-purpose and debug)\n" COLOR_RESET);
+        printf(COLOR_GREEN "  dump                - Dump memory at the current "
+                           "instruction pointer\n" COLOR_RESET);
+        printf(COLOR_GREEN "  dis                 - Disassemble memory at the "
+                           "current instruction pointer\n" COLOR_RESET);
+        printf(COLOR_GREEN "  vars                - Display global variables "
+                           "and their values\n" COLOR_RESET);
+        printf(COLOR_GREEN "  funcs               - List function names with "
+                           "addresses\n" COLOR_RESET);
+        print_separator_large();
 }
 
 int Run(debuggee *dbgee) {
         if (dbgee->bp_handler == NULL) {
-                (void)(fprintf(stderr,
-                               "Invalid debuggee or breakpoint handler.\n"));
+                (void)(fprintf(
+                    stderr, COLOR_RED
+                    "Invalid debuggee or breakpoint handler.\n" COLOR_RESET));
                 return EXIT_FAILURE;
         }
 
@@ -858,13 +903,15 @@ int Run(debuggee *dbgee) {
 
                                 if (Continue(dbgee) != EXIT_SUCCESS) {
                                         (void)(fprintf(
-                                            stderr,
-                                            "Failed to continue execution.\n"));
+                                            stderr, COLOR_RED
+                                            "Failed to continue "
+                                            "execution.\n" COLOR_RESET));
                                         return EXIT_FAILURE;
                                 }
 
-                                printf(
-                                    "Debuggee is running until termination.\n");
+                                printf(COLOR_GREEN
+                                       "Debuggee is running until "
+                                       "termination.\n" COLOR_RESET);
                                 return EXIT_SUCCESS;
                         }
                 }
@@ -873,7 +920,8 @@ int Run(debuggee *dbgee) {
         }
 
         if (Continue(dbgee) != EXIT_SUCCESS) {
-                (void)(fprintf(stderr, "Failed to continue execution.\n"));
+                (void)(fprintf(stderr, COLOR_RED
+                               "Failed to continue execution.\n" COLOR_RESET));
                 return EXIT_FAILURE;
         }
 
@@ -882,9 +930,9 @@ int Run(debuggee *dbgee) {
 
 int Continue(debuggee *dbgee) {
         if (!dbgee->has_run) {
-                (void)(fprintf(
-                    stderr,
-                    "Warning: 'run' must be executed before 'continue'.\n"));
+                (void)(fprintf(stderr,
+                               COLOR_RED "Warning: 'run' must be executed "
+                                         "before 'continue'.\n" COLOR_RESET));
                 return EXIT_FAILURE;
         }
 
@@ -910,7 +958,9 @@ int Step(debuggee *dbgee) {
 int StepOver(debuggee *dbgee) {
         unsigned long rip;
         if (_read_rip(dbgee, &rip) != 0) {
-                (void)(fprintf(stderr, "Failed to read RIP for StepOver.\n"));
+                (void)(fprintf(
+                    stderr, COLOR_RED
+                    "Failed to read RIP for StepOver.\n" COLOR_RESET));
                 return EXIT_FAILURE;
         }
 
@@ -924,15 +974,18 @@ int StepOver(debuggee *dbgee) {
         }
 
         if (final_addr == rip) {
-                (void)(fprintf(stderr,
-                               "Current instruction at 0x%lx is not a call.\n",
-                               rip));
+                (void)(fprintf(
+                    stderr,
+                    COLOR_RED
+                    "Current instruction at 0x%lx is not a call.\n" COLOR_RESET,
+                    rip));
                 return EXIT_FAILURE;
         }
 
         if (set_temp_sw_breakpoint(dbgee, final_addr) != EXIT_SUCCESS) {
                 (void)(fprintf(stderr,
-                               "Failed to set temporary breakpoint at 0x%lx.\n",
+                               COLOR_RED "Failed to set temporary breakpoint "
+                                         "at 0x%lx.\n" COLOR_RESET,
                                final_addr));
                 return EXIT_FAILURE;
         }
@@ -950,17 +1003,19 @@ int StepOut(debuggee *dbgee) {
         unsigned long return_address;
 
         if (_get_return_address(dbgee, &return_address) != 0) {
-                (void)fprintf(
-                    stderr, "Failed to retrieve return address for StepOut.\n");
+                (void)fprintf(stderr,
+                              COLOR_RED "Failed to retrieve return address for "
+                                        "StepOut.\n" COLOR_RESET);
                 return EXIT_FAILURE;
         }
 
-        printf("Return address found at 0x%lx\n", return_address);
+        printf(COLOR_GREEN "Return address found at 0x%lx\n" COLOR_RESET,
+               return_address);
 
         if (set_temp_sw_breakpoint(dbgee, return_address) != EXIT_SUCCESS) {
                 (void)fprintf(stderr,
-                              "Failed to set temporary breakpoint at return "
-                              "address 0x%lx.\n",
+                              COLOR_RED "Failed to set temporary breakpoint at "
+                                        "return address 0x%lx.\n" COLOR_RESET,
                               return_address);
                 return EXIT_FAILURE;
         }
@@ -978,15 +1033,18 @@ int Skip(debuggee *dbgee, const char *arg) {
         int n = (int)strtol(arg, NULL, DECIMAL_BASE_PARAMETER);
 
         if (n <= 0) {
-                (void)(fprintf(stderr,
-                               "Invalid number of instructions to skip: %s\n",
-                               arg));
+                (void)(fprintf(
+                    stderr,
+                    COLOR_RED
+                    "Invalid number of instructions to skip: %s\n" COLOR_RESET,
+                    arg));
                 return EXIT_FAILURE;
         }
 
         for (int i = 0; i < n; i++) {
                 if (_step_and_wait(dbgee) != EXIT_SUCCESS) {
-                        (void)(fprintf(stderr, "Failed to single step.\n"));
+                        (void)(fprintf(stderr, COLOR_RED
+                                       "Failed to single step.\n" COLOR_RESET));
                         return EXIT_FAILURE;
                 }
         }
@@ -1001,13 +1059,16 @@ int Jump(debuggee *dbgee, const char *arg) { // NOLINT
         }
 
         if (address == 0) {
-                (void)(fprintf(stderr, "Invalid address: %s\n", arg));
+                (void)(fprintf(stderr,
+                               COLOR_RED "Invalid address: %s\n" COLOR_RESET,
+                               arg));
                 return EXIT_FAILURE;
         }
 
         if (set_temp_sw_breakpoint(dbgee, address) != EXIT_SUCCESS) {
                 (void)(fprintf(stderr,
-                               "Failed to set temporary breakpoint at 0x%lx.\n",
+                               COLOR_RED "Failed to set temporary breakpoint "
+                                         "at 0x%lx.\n" COLOR_RESET,
                                address));
                 return EXIT_FAILURE;
         }
@@ -1027,16 +1088,17 @@ int Jump(debuggee *dbgee, const char *arg) { // NOLINT
                 }
 
                 if (WIFEXITED(wait_status)) {
-                        printf("Debuggee exited with status %d during jump.\n",
+                        printf(COLOR_YELLOW "Debuggee exited with status %d "
+                                            "during jump.\n" COLOR_RESET,
                                WEXITSTATUS(wait_status));
                         dbgee->state = TERMINATED;
                         return EXIT_FAILURE;
                 }
 
                 if (WIFSIGNALED(wait_status)) {
-                        printf(
-                            "Debuggee was killed by signal %d during jump.\n",
-                            WTERMSIG(wait_status));
+                        printf(COLOR_YELLOW "Debuggee was killed by signal %d "
+                                            "during jump.\n" COLOR_RESET,
+                               WTERMSIG(wait_status));
                         dbgee->state = TERMINATED;
                         return EXIT_FAILURE;
                 }
@@ -1061,13 +1123,14 @@ int Jump(debuggee *dbgee, const char *arg) { // NOLINT
                                         }
 
                                         if (rip - 1 == address) {
-                                                printf("Jump completed to "
-                                                       "address 0x%lx.\n",
+                                                printf(COLOR_GREEN
+                                                       "Jump completed to "
+                                                       "address "
+                                                       "0x%lx.\n" COLOR_RESET,
                                                        address);
                                                 jump_complete = true;
                                         }
                                 }
-
                                 // Ignore all other signals
                         }
                 }
@@ -1078,26 +1141,33 @@ int Jump(debuggee *dbgee, const char *arg) { // NOLINT
 
 int Trace(debuggee *dbgee, const char *arg) { // NOLINT
         if (Jump(dbgee, arg) != EXIT_SUCCESS) {
-                (void)(fprintf(stderr, "Failed to jump to %s.\n", arg));
+                (void)(fprintf(stderr,
+                               COLOR_RED "Failed to jump to %s.\n" COLOR_RESET,
+                               arg));
                 return EXIT_FAILURE;
         }
 
         while (true) {
                 if (_step_and_wait(dbgee) != EXIT_SUCCESS) {
-                        (void)(fprintf(stderr, "Failed to single step.\n"));
+                        (void)(fprintf(stderr, COLOR_RED
+                                       "Failed to single step.\n" COLOR_RESET));
                         return EXIT_FAILURE;
                 }
 
                 unsigned long rip;
                 if (_read_rip(dbgee, &rip) != EXIT_SUCCESS) {
-                        (void)(fprintf(stderr, "Failed to read RIP.\n"));
+                        (void)(fprintf(stderr, COLOR_RED
+                                       "Failed to read RIP.\n" COLOR_RESET));
                         return EXIT_FAILURE;
                 }
 
                 unsigned char buf[MAX_X86_INSTRUCT_LEN];
                 if (_read_memory(dbgee->pid, rip, buf, sizeof(buf)) != 0) {
                         (void)(fprintf(
-                            stderr, "Failed to read memory at 0x%lx\n", rip));
+                            stderr,
+                            COLOR_RED
+                            "Failed to read memory at 0x%lx\n" COLOR_RESET,
+                            rip));
                         return EXIT_FAILURE;
                 }
 
@@ -1106,35 +1176,45 @@ int Trace(debuggee *dbgee, const char *arg) { // NOLINT
                 size_t count;
 
                 if (cs_open(CS_ARCH_X86, CS_MODE_64, &handle) != CS_ERR_OK) {
-                        (void)(fprintf(stderr,
-                                       "Failed to initialize Capstone.\n"));
+                        (void)(fprintf(
+                            stderr, COLOR_RED
+                            "Failed to initialize Capstone.\n" COLOR_RESET));
                         return EXIT_FAILURE;
                 }
 
                 cs_option(handle, CS_OPT_SYNTAX, CS_OPT_SYNTAX_INTEL);
                 count = cs_disasm(handle, buf, sizeof(buf), rip, 1, &insn);
                 if (count > 0) {
-                        printf("0x%016lx: %-10s %s\n", insn[0].address,
+                        printf(COLOR_CYAN "0x%016lx: " COLOR_RESET,
+                               insn[0].address);
+                        printf(COLOR_GREEN "%-10s" COLOR_RESET " %s\n",
                                insn[0].mnemonic, insn[0].op_str);
 
                         if (strcmp(insn[0].mnemonic, "ret") == 0 ||
                             strcmp(insn[0].mnemonic, "hlt") == 0) {
-                                printf("Trace completed at 0x%lx\n",
+                                printf(COLOR_YELLOW
+                                       "Trace completed at 0x%lx\n" COLOR_RESET,
                                        insn[0].address);
                                 cs_free(insn, count);
                                 cs_close(&handle);
                                 break;
                         }
-
                         cs_free(insn, count);
                 } else {
                         (void)(fprintf(
-                            stderr, "Failed to disassemble at 0x%lx\n", rip));
-                        (void)(fprintf(stderr, "Raw bytes: "));
+                            stderr,
+                            COLOR_RED
+                            "Failed to disassemble at 0x%lx\n" COLOR_RESET,
+                            rip));
+                        (void)(fprintf(stderr,
+                                       COLOR_RED "Raw bytes: " COLOR_RESET));
                         for (size_t i = 0; i < sizeof(buf); ++i) {
-                                (void)(fprintf(stderr, "%02x ", buf[i]));
+                                (void)(fprintf(stderr,
+                                               COLOR_RED "%02x " COLOR_RESET,
+                                               buf[i]));
                         }
                         (void)(fprintf(stderr, "\n"));
+                        cs_close(&handle);
                         return EXIT_FAILURE;
                 }
 
@@ -1153,7 +1233,9 @@ int Registers(debuggee *dbgee) {
         unsigned long dr7;
 
         if (ptrace(PTRACE_GETREGS, dbgee->pid, NULL, &regs) == -1) {
-                (void)(fprintf(stderr, "Failed to get registers: %s\n",
+                (void)(fprintf(stderr,
+                               COLOR_RED
+                               "Failed to get registers: %s\n" COLOR_RESET,
                                strerror(errno)));
                 return EXIT_FAILURE;
         }
@@ -1161,54 +1243,69 @@ int Registers(debuggee *dbgee) {
         if (_read_debug_register(dbgee->pid, DR0_OFFSET, &dr0) != 0) {
                 return EXIT_FAILURE;
         }
-
         if (_read_debug_register(dbgee->pid, DR1_OFFSET, &dr1) != 0) {
                 return EXIT_FAILURE;
         }
-
         if (_read_debug_register(dbgee->pid, DR2_OFFSET, &dr2) != 0) {
                 return EXIT_FAILURE;
         }
-
         if (_read_debug_register(dbgee->pid, DR3_OFFSET, &dr3) != 0) {
                 return EXIT_FAILURE;
         }
-
         if (_read_debug_register(dbgee->pid, DR7_OFFSET, &dr7) != 0) {
                 return EXIT_FAILURE;
         }
 
-        printf("Register values for PID %d:\n", dbgee->pid);
-        printf("---------------------------------------------------------------"
-               "----------------------\n");
-        printf("General Purpose Registers:\n");
-        printf("---------------------------------------------------------------"
-               "----------------------\n");
-        printf("  R15: 0x%016llx    R14: 0x%016llx\n", regs.r15, regs.r14);
-        printf("  R13: 0x%016llx    R12: 0x%016llx\n", regs.r13, regs.r12);
-        printf("  R11: 0x%016llx    R10: 0x%016llx\n", regs.r11, regs.r10);
-        printf("  R9:  0x%016llx    R8:  0x%016llx\n", regs.r9, regs.r8);
-        printf("  RAX: 0x%016llx    RBX: 0x%016llx\n", regs.rax, regs.rbx);
-        printf("  RCX: 0x%016llx    RDX: 0x%016llx\n", regs.rcx, regs.rdx);
-        printf("  RSI: 0x%016llx    RDI: 0x%016llx\n", regs.rsi, regs.rdi);
-        printf("  RBP: 0x%016llx    RSP: 0x%016llx\n", regs.rbp, regs.rsp);
-        printf("---------------------------------------------------------------"
-               "----------------------\n");
-        printf("Instruction Pointer and Flags:\n");
-        printf("---------------------------------------------------------------"
-               "----------------------\n");
-        printf("  RIP: 0x%016llx    EFL: 0x%016llx\n", regs.rip, regs.eflags);
-        printf("  CS:  0x%016llx\n", regs.cs);
-        printf("---------------------------------------------------------------"
-               "----------------------\n");
-        printf("Debug Registers:\n");
-        printf("---------------------------------------------------------------"
-               "----------------------\n");
-        printf("  DR0: 0x%016lx    DR1: 0x%016lx\n", dr0, dr1);
-        printf("  DR2: 0x%016lx    DR3: 0x%016lx\n", dr2, dr3);
-        printf("  DR7: 0x%016lx\n", dr7);
-        printf("---------------------------------------------------------------"
-               "----------------------\n");
+        printf(COLOR_CYAN "Register values for PID %d:\n" COLOR_RESET,
+               dbgee->pid);
+        print_separator();
+
+        printf(COLOR_YELLOW "General Purpose Registers:\n" COLOR_RESET);
+        print_separator();
+        printf("  " COLOR_GREEN "R15: 0x%016llx" COLOR_RESET "    " COLOR_GREEN
+               "R14: 0x%016llx\n" COLOR_RESET,
+               regs.r15, regs.r14);
+        printf("  " COLOR_GREEN "R13: 0x%016llx" COLOR_RESET "    " COLOR_GREEN
+               "R12: 0x%016llx\n" COLOR_RESET,
+               regs.r13, regs.r12);
+        printf("  " COLOR_GREEN "R11: 0x%016llx" COLOR_RESET "    " COLOR_GREEN
+               "R10: 0x%016llx\n" COLOR_RESET,
+               regs.r11, regs.r10);
+        printf("  " COLOR_GREEN "R9:  0x%016llx" COLOR_RESET "    " COLOR_GREEN
+               "R8:  0x%016llx\n" COLOR_RESET,
+               regs.r9, regs.r8);
+        printf("  " COLOR_GREEN "RAX: 0x%016llx" COLOR_RESET "    " COLOR_GREEN
+               "RBX: 0x%016llx\n" COLOR_RESET,
+               regs.rax, regs.rbx);
+        printf("  " COLOR_GREEN "RCX: 0x%016llx" COLOR_RESET "    " COLOR_GREEN
+               "RDX: 0x%016llx\n" COLOR_RESET,
+               regs.rcx, regs.rdx);
+        printf("  " COLOR_GREEN "RSI: 0x%016llx" COLOR_RESET "    " COLOR_GREEN
+               "RDI: 0x%016llx\n" COLOR_RESET,
+               regs.rsi, regs.rdi);
+        printf("  " COLOR_GREEN "RBP: 0x%016llx" COLOR_RESET "    " COLOR_GREEN
+               "RSP: 0x%016llx\n" COLOR_RESET,
+               regs.rbp, regs.rsp);
+        print_separator();
+
+        printf(COLOR_YELLOW "Instruction Pointer and Flags:\n" COLOR_RESET);
+        print_separator();
+        printf("  " COLOR_GREEN "RIP: 0x%016llx" COLOR_RESET "    " COLOR_GREEN
+               "EFL: 0x%016llx\n" COLOR_RESET,
+               regs.rip, regs.eflags);
+        printf("  " COLOR_GREEN "CS:  0x%016llx\n" COLOR_RESET, regs.cs);
+        print_separator();
+
+        printf(COLOR_YELLOW "Debug Registers:\n" COLOR_RESET);
+        print_separator();
+        printf("  " COLOR_GREEN "DR0: 0x%016lx" COLOR_RESET "    " COLOR_GREEN
+               "DR1: 0x%016lx\n" COLOR_RESET,
+               dr0, dr1);
+        printf("  " COLOR_GREEN "DR2: 0x%016lx" COLOR_RESET "    " COLOR_GREEN
+               "DR3: 0x%016lx\n" COLOR_RESET,
+               dr2, dr3);
+        printf("  " COLOR_GREEN "DR7: 0x%016lx\n" COLOR_RESET, dr7);
+        print_separator();
 
         return EXIT_SUCCESS;
 }
@@ -1220,29 +1317,35 @@ int SetSoftwareBreakpoint(debuggee *dbgee, const char *arg) {
         }
 
         if (address == 0) {
-                (void)(fprintf(stderr, "Invalid address: %s\n", arg));
+                (void)(fprintf(stderr,
+                               COLOR_RED "Invalid address: %s\n" COLOR_RESET,
+                               arg));
                 return EXIT_FAILURE;
         }
 
         if (_breakpoint_exists(dbgee, address)) {
                 (void)(fprintf(stderr,
-                               "A breakpoint already exists at address 0x%lx\n",
+                               COLOR_RED "A breakpoint already exists at "
+                                         "address 0x%lx\n" COLOR_RESET,
                                address));
                 return EXIT_FAILURE;
         }
 
         uint64_t original_byte;
         if (!_set_sw_breakpoint(dbgee->pid, address, &original_byte)) {
-                (void)(fprintf(stderr,
-                               "Failed to set software breakpoint at 0x%lx.\n",
-                               address));
+                (void)(fprintf(
+                    stderr,
+                    COLOR_RED
+                    "Failed to set software breakpoint at 0x%lx.\n" COLOR_RESET,
+                    address));
                 return EXIT_FAILURE;
         }
 
         size_t bp_index =
             add_software_breakpoint(dbgee->bp_handler, address, original_byte);
-        printf("Software breakpoint set at 0x%lx [Index: %zu]\n", address,
-               bp_index);
+        printf(COLOR_GREEN
+               "Software breakpoint set at 0x%lx [Index: %zu]\n" COLOR_RESET,
+               address, bp_index);
 
         return EXIT_SUCCESS;
 }
@@ -1254,13 +1357,16 @@ int SetHardwareBreakpoint(debuggee *dbgee, const char *arg) {
         }
 
         if (address == 0) {
-                (void)(fprintf(stderr, "Invalid address: %s\n", arg));
+                (void)(fprintf(stderr,
+                               COLOR_RED "Invalid address: %s\n" COLOR_RESET,
+                               arg));
                 return EXIT_FAILURE;
         }
 
         if (_breakpoint_exists(dbgee, address)) {
                 (void)(fprintf(stderr,
-                               "A breakpoint already exists at address 0x%lx\n",
+                               COLOR_RED "A breakpoint already exists at "
+                                         "address 0x%lx\n" COLOR_RESET,
                                address));
                 return EXIT_FAILURE;
         }
@@ -1268,27 +1374,34 @@ int SetHardwareBreakpoint(debuggee *dbgee, const char *arg) {
         int bpno = 0;
         unsigned long dr_offset = 0;
         if (!_get_available_debug_register(dbgee, &bpno, &dr_offset)) {
-                (void)(fprintf(stderr,
-                               "No available hardware debug registers.\n"));
+                (void)(fprintf(
+                    stderr, COLOR_RED
+                    "No available hardware debug registers.\n" COLOR_RESET));
                 return EXIT_FAILURE;
         }
 
         if (_set_debug_register(dbgee->pid, dr_offset, address) != 0) {
-                (void)(fprintf(stderr, "Failed to set DR%d to 0x%lx.\n", bpno,
-                               address));
+                (void)(fprintf(stderr,
+                               COLOR_RED
+                               "Failed to set DR%d to 0x%lx.\n" COLOR_RESET,
+                               bpno, address));
                 return EXIT_FAILURE;
         }
 
         if (_configure_dr7(dbgee->pid, bpno, 0x0, 0x0, true) != 0) {
-                (void)(fprintf(stderr,
-                               "Failed to configure DR7 for breakpoint %d.\n",
-                               bpno));
+                (void)(fprintf(
+                    stderr,
+                    COLOR_RED
+                    "Failed to configure DR7 for breakpoint %d.\n" COLOR_RESET,
+                    bpno));
                 return EXIT_FAILURE;
         }
 
         size_t bp_index = add_hardware_breakpoint(dbgee->bp_handler, address);
-        printf("Hardware breakpoint set at 0x%lx [Index: %zu, DR%d]\n", address,
-               bp_index, bpno);
+        printf(
+            COLOR_GREEN
+            "Hardware breakpoint set at 0x%lx [Index: %zu, DR%d]\n" COLOR_RESET,
+            address, bp_index, bpno);
 
         return EXIT_SUCCESS;
 }
@@ -1301,13 +1414,16 @@ int SetWatchpoint(debuggee *dbgee, const char *arg) {
         }
 
         if (address == 0) {
-                (void)(fprintf(stderr, "Invalid address: %s\n", arg));
+                (void)(fprintf(stderr,
+                               COLOR_RED "Invalid address: %s\n" COLOR_RESET,
+                               arg));
                 return EXIT_FAILURE;
         }
 
         if (_breakpoint_exists(dbgee, address)) {
                 (void)(fprintf(stderr,
-                               "A watchpoint already exists at address 0x%lx\n",
+                               COLOR_RED "A watchpoint already exists at "
+                                         "address 0x%lx\n" COLOR_RESET,
                                address));
                 return EXIT_FAILURE;
         }
@@ -1315,34 +1431,41 @@ int SetWatchpoint(debuggee *dbgee, const char *arg) {
         int bpno = 0;
         unsigned long dr_offset = 0;
         if (!_get_available_debug_register(dbgee, &bpno, &dr_offset)) {
-                (void)(fprintf(stderr,
-                               "No available hardware debug registers.\n"));
+                (void)(fprintf(
+                    stderr, COLOR_RED
+                    "No available hardware debug registers.\n" COLOR_RESET));
                 return EXIT_FAILURE;
         }
 
         if (_set_debug_register(dbgee->pid, dr_offset, address) != 0) {
-                (void)(fprintf(stderr, "Failed to set DR%d to 0x%lx.\n", bpno,
-                               address));
+                (void)(fprintf(stderr,
+                               COLOR_RED
+                               "Failed to set DR%d to 0x%lx.\n" COLOR_RESET,
+                               bpno, address));
                 return EXIT_FAILURE;
         }
 
         if (_configure_dr7(dbgee->pid, bpno, WATCHPOINT_RW_READ_WRITE,
                            WATCHPOINT_LEN_4_BYTES, true) != 0) {
-                (void)(fprintf(stderr,
-                               "Failed to configure DR7 for watchpoint %d.\n",
-                               bpno));
+                (void)(fprintf(
+                    stderr,
+                    COLOR_RED
+                    "Failed to configure DR7 for watchpoint %d.\n" COLOR_RESET,
+                    bpno));
                 return EXIT_FAILURE;
         }
 
         size_t bp_index = add_watchpoint(dbgee->bp_handler, address);
         if (bp_index == (size_t)-1) {
-                (void)(fprintf(stderr,
-                               "Failed to add watchpoint to handler.\n"));
+                (void)(fprintf(
+                    stderr, COLOR_RED
+                    "Failed to add watchpoint to handler.\n" COLOR_RESET));
                 return EXIT_FAILURE;
         }
 
-        printf("Watchpoint set at 0x%lx [Index: %zu, DR%d]\n", address,
-               bp_index, bpno);
+        printf(COLOR_GREEN
+               "Watchpoint set at 0x%lx [Index: %zu, DR%d]\n" COLOR_RESET,
+               address, bp_index, bpno);
         return EXIT_SUCCESS;
 }
 
@@ -1351,8 +1474,10 @@ int SetCatchpoint(debuggee *dbgee, const char *arg) { // NOLINT
         int signal_number = (int)(strtol(arg, &endptr, DECIMAL_BASE_PARAMETER));
         if (*endptr == '\0') {
                 if (signal_number < 1 || signal_number > NSIG) {
-                        (void)(fprintf(stderr, "Invalid signal number: %s\n",
-                                       arg));
+                        (void)(fprintf(
+                            stderr,
+                            COLOR_RED "Invalid signal number: %s\n" COLOR_RESET,
+                            arg));
                         return EXIT_FAILURE;
                 }
 
@@ -1361,8 +1486,9 @@ int SetCatchpoint(debuggee *dbgee, const char *arg) { // NOLINT
                         if (bp->bp_t == CATCHPOINT_SIGNAL &&
                             bp->data.cp_signal.signal == signal_number) {
                                 (void)(fprintf(stderr,
+                                               COLOR_RED
                                                "A catchpoint for signal %d "
-                                               "already exists.\n",
+                                               "already exists.\n" COLOR_RESET,
                                                signal_number));
                                 return EXIT_FAILURE;
                         }
@@ -1371,14 +1497,17 @@ int SetCatchpoint(debuggee *dbgee, const char *arg) { // NOLINT
                 size_t bp_index =
                     add_catchpoint_signal(dbgee->bp_handler, signal_number);
                 if (bp_index == (size_t)-1) {
-                        (void)(fprintf(
-                            stderr, "Failed to add catchpoint for signal %d.\n",
-                            signal_number));
+                        (void)(fprintf(stderr,
+                                       COLOR_RED "Failed to add catchpoint for "
+                                                 "signal %d.\n" COLOR_RESET,
+                                       signal_number));
                         return EXIT_FAILURE;
                 }
 
-                printf("Catchpoint set for signal %d [Index: %zu]\n",
-                       signal_number, bp_index);
+                printf(
+                    COLOR_GREEN
+                    "Catchpoint set for signal %d [Index: %zu]\n" COLOR_RESET,
+                    signal_number, bp_index);
                 return EXIT_SUCCESS;
         }
 
@@ -1388,26 +1517,35 @@ int SetCatchpoint(debuggee *dbgee, const char *arg) { // NOLINT
 
                 size_t bp_index = add_catchpoint_event(dbgee->bp_handler, arg);
                 if (bp_index == (size_t)-1) {
-                        (void)(fprintf(
-                            stderr,
-                            "Failed to add catchpoint for event '%s'.\n", arg));
+                        (void)(fprintf(stderr,
+                                       COLOR_RED "Failed to add catchpoint for "
+                                                 "event '%s'.\n" COLOR_RESET,
+                                       arg));
                         return EXIT_FAILURE;
                 }
 
-                printf("Catchpoint set for event '%s' [Index: %zu]\n", arg,
-                       bp_index);
+                printf(
+                    COLOR_GREEN
+                    "Catchpoint set for event '%s' [Index: %zu]\n" COLOR_RESET,
+                    arg, bp_index);
                 return EXIT_SUCCESS;
         }
 
-        (void)(fprintf(stderr, "Invalid catchpoint argument: %s\n", arg));
-        (void)(fprintf(stderr, "Usage: catch <signal_num> | <event_name>\n"));
+        (void)(fprintf(
+            stderr, COLOR_RED "Invalid catchpoint argument: %s\n" COLOR_RESET,
+            arg));
+        (void)(fprintf(
+            stderr, COLOR_RED
+            "Usage: catch <signal_num> | <event_name>\n" COLOR_RESET));
         return EXIT_FAILURE;
 }
 
 int RemoveBreakpoint(debuggee *dbgee, const char *arg) { // NOLINT
         size_t index = strtoull(arg, NULL, DECIMAL_BASE_PARAMETER);
         if (index >= dbgee->bp_handler->count) {
-                (void)(fprintf(stderr, "Invalid breakpoint index: %zu\n",
+                (void)(fprintf(stderr,
+                               COLOR_RED
+                               "Invalid breakpoint index: %zu\n" COLOR_RESET,
                                index));
                 return EXIT_FAILURE;
         }
@@ -1419,17 +1557,17 @@ int RemoveBreakpoint(debuggee *dbgee, const char *arg) { // NOLINT
                 if (_replace_sw_breakpoint(dbgee->pid, bp->data.sw_bp.address,
                                            bp->data.sw_bp.original_byte) !=
                     EXIT_SUCCESS) {
-                        (void)(fprintf(
-                            stderr,
-                            "Failed to remove software breakpoint at 0x%lx\n",
-                            bp->data.sw_bp.address));
+                        (void)(fprintf(stderr,
+                                       COLOR_RED
+                                       "Failed to remove software breakpoint "
+                                       "at 0x%lx\n" COLOR_RESET,
+                                       bp->data.sw_bp.address));
                         return EXIT_FAILURE;
                 }
                 printf("Software breakpoint removed at 0x%lx [Index: %zu]\n",
                        bp->data.sw_bp.address, index);
                 break;
         }
-
         case WATCHPOINT:
         case HARDWARE_BP: {
                 unsigned long dr0;
@@ -1448,8 +1586,9 @@ int RemoveBreakpoint(debuggee *dbgee, const char *arg) { // NOLINT
                         EXIT_SUCCESS ||
                     _read_debug_register(dbgee->pid, DR7_OFFSET, &dr7) !=
                         EXIT_SUCCESS) {
-                        (void)(fprintf(stderr,
-                                       "Failed to read debug registers.\n"));
+                        (void)(fprintf(
+                            stderr, COLOR_RED
+                            "Failed to read debug registers.\n" COLOR_RESET));
                         return EXIT_FAILURE;
                 }
 
@@ -1463,8 +1602,9 @@ int RemoveBreakpoint(debuggee *dbgee, const char *arg) { // NOLINT
                 } else if (dr3 == bp->data.hw_bp.address) {
                         dr_index = 3;
                 } else {
-                        (void)(fprintf(stderr, "Hardware breakpoint address "
-                                               "not found in DR0-DR3.\n"));
+                        (void)(fprintf(stderr, COLOR_RED
+                                       "Hardware breakpoint address not found "
+                                       "in DR0-DR3.\n" COLOR_RESET));
                         return EXIT_FAILURE;
                 }
 
@@ -1483,48 +1623,55 @@ int RemoveBreakpoint(debuggee *dbgee, const char *arg) { // NOLINT
                         dr_offset = DR3_OFFSET;
                         break;
                 default:
-                        (void)(fprintf(stderr, "Invalid breakpoint number.\n"));
+                        (void)(fprintf(
+                            stderr, COLOR_RED
+                            "Invalid breakpoint number.\n" COLOR_RESET));
                         return EXIT_FAILURE;
                 }
 
                 if (_set_debug_register(dbgee->pid, dr_offset, 0) !=
                     EXIT_SUCCESS) {
-                        (void)(fprintf(stderr, "Failed to clear DR%d.\n",
+                        (void)(fprintf(stderr,
+                                       COLOR_RED
+                                       "Failed to clear DR%d.\n" COLOR_RESET,
                                        dr_index));
                         return EXIT_FAILURE;
                 }
 
                 if (_configure_dr7(dbgee->pid, dr_index, 0, 0, false) !=
                     EXIT_SUCCESS) {
-                        (void)(fprintf(
-                            stderr,
-                            "Failed to update DR7 after clearing DR%d.\n",
-                            dr_index));
+                        (void)(fprintf(stderr,
+                                       COLOR_RED "Failed to update DR7 after "
+                                                 "clearing DR%d.\n" COLOR_RESET,
+                                       dr_index));
                         return EXIT_FAILURE;
                 }
 
-                printf(
-                    "Hardware breakpoint removed at 0x%lx [Index: %zu, DR%d]\n",
-                    bp->data.hw_bp.address, index, dr_index);
+                printf(COLOR_GREEN "Hardware breakpoint removed at 0x%lx "
+                                   "[Index: %zu, DR%d]\n" COLOR_RESET,
+                       bp->data.hw_bp.address, index, dr_index);
                 break;
         }
-
         case CATCHPOINT_SIGNAL:
         case CATCHPOINT_EVENT_FORK:
         case CATCHPOINT_EVENT_VFORK:
         case CATCHPOINT_EVENT_CLONE:
         case CATCHPOINT_EVENT_EXEC:
         case CATCHPOINT_EVENT_EXIT:
-                printf("Catchpoint removed [Index: %zu]\n", index);
+                printf(COLOR_GREEN
+                       "Catchpoint removed [Index: %zu]\n" COLOR_RESET,
+                       index);
                 break;
         default:
-                (void)(fprintf(stderr, "Unknown breakpoint type.\n"));
+                (void)(fprintf(stderr, COLOR_RED
+                               "Unknown breakpoint type.\n" COLOR_RESET));
                 return EXIT_FAILURE;
         }
 
         if (remove_breakpoint(dbgee->bp_handler, index) != EXIT_SUCCESS) {
-                (void)(fprintf(stderr,
-                               "Failed to remove catchpoint from handler.\n"));
+                (void)(fprintf(
+                    stderr, COLOR_RED
+                    "Failed to remove catchpoint from handler.\n" COLOR_RESET));
                 return EXIT_FAILURE;
         }
 
@@ -1541,19 +1688,25 @@ int Dump(debuggee *dbgee) { // NOLINT
         size_t dump_length = DUMP_SIZE;
 
         if (_read_rip(dbgee, &rip) != 0) {
-                (void)(fprintf(stderr, "Failed to retrieve current RIP.\n"));
+                (void)(fprintf(
+                    stderr,
+                    COLOR_RED "Failed to retrieve current RIP.\n" COLOR_RESET));
                 return -1;
         }
 
         base_address = _get_module_base_address(dbgee->pid, rip, module_name,
                                                 sizeof(module_name));
         if (base_address == 0) {
-                (void)(fprintf(stderr, "Failed to retrieve base address.\n"));
+                (void)(fprintf(
+                    stderr, COLOR_RED
+                    "Failed to retrieve base address.\n" COLOR_RESET));
                 return EXIT_FAILURE;
         }
 
         if (_read_memory(dbgee->pid, rip, buf, sizeof(buf)) != 0) {
-                (void)(fprintf(stderr, "Failed to read memory at 0x%lx\n",
+                (void)(fprintf(stderr,
+                               COLOR_RED
+                               "Failed to read memory at 0x%lx\n" COLOR_RESET,
                                rip));
                 return EXIT_FAILURE;
         }
@@ -1563,7 +1716,8 @@ int Dump(debuggee *dbgee) { // NOLINT
         size_t count;
 
         if (cs_open(CS_ARCH_X86, CS_MODE_64, &handle) != CS_ERR_OK) {
-                (void)(fprintf(stderr, "Failed to initialize Capstone.\n"));
+                (void)(fprintf(stderr, COLOR_RED
+                               "Failed to initialize Capstone.\n" COLOR_RESET));
                 return EXIT_FAILURE;
         }
 
@@ -1573,56 +1727,57 @@ int Dump(debuggee *dbgee) { // NOLINT
         if (count > 0) {
                 for (size_t i = 0; i < count; i++) {
                         size_t insn_length = insn[i].size;
-
                         if (strcmp(insn[i].mnemonic, "ret") == 0) {
                                 dump_length =
                                     insn[i].address - rip + insn_length;
                                 break;
                         }
                 }
-
                 cs_free(insn, count);
         } else {
                 (void)(fprintf(
-                    stderr, "Failed to disassemble memory at 0x%lx.\n", rip));
+                    stderr,
+                    COLOR_RED
+                    "Failed to disassemble memory at 0x%lx.\n" COLOR_RESET,
+                    rip));
                 cs_close(&handle);
                 return EXIT_FAILURE;
         }
 
         cs_close(&handle);
 
-        printf("Memory dump in module '%s' at RIP: 0x%016lx (Offset: 0x%lx)\n",
+        printf(COLOR_CYAN "Memory dump in module '%s' at RIP: " COLOR_GREEN
+                          "0x%016lx" COLOR_CYAN " (Offset: " COLOR_YELLOW
+                          "0x%lx" COLOR_CYAN ")\n" COLOR_RESET,
                module_name, rip, rip - base_address);
-
-        printf("---------------------------------------------------------------"
-               "----------------------\n");
-        printf("Offset              Hexadecimal                                "
-               "      ASCII\n");
-        printf("---------------------------------------------------------------"
-               "----------------------\n");
+        print_separator();
 
         for (size_t i = 0; i < dump_length; i += WORD_LENGTH) {
                 unsigned long current_address = rip + i;
                 unsigned long offset = current_address - base_address;
-                printf("0x%016lx (0x%lx): ", current_address, offset);
+
+                printf(COLOR_GREEN "0x%016lx (0x%lx): " COLOR_RESET,
+                       current_address, offset);
 
                 for (size_t j = 0; j < WORD_LENGTH; ++j) {
                         if (i + j < dump_length) {
-                                printf("%02x ", buf[i + j]);
+                                printf(COLOR_YELLOW "%02x " COLOR_RESET,
+                                       buf[i + j]);
                         } else {
                                 printf("   ");
                         }
                 }
 
-                printf(" ");
+                printf("  ");
 
                 for (size_t j = 0; j < WORD_LENGTH; ++j) {
                         if (i + j < dump_length) {
                                 unsigned char c = buf[i + j];
-                                printf("%c", (c >= ASCII_PRINTABLE_MIN &&
-                                              c <= ASCII_PRINTABLE_MAX)
-                                                 ? c
-                                                 : '.');
+                                printf(COLOR_WHITE "%c" COLOR_RESET,
+                                       (c >= ASCII_PRINTABLE_MIN &&
+                                        c <= ASCII_PRINTABLE_MAX)
+                                           ? c
+                                           : '.');
                         }
                 }
 
@@ -1633,8 +1788,7 @@ int Dump(debuggee *dbgee) { // NOLINT
                 }
         }
 
-        printf("---------------------------------------------------------------"
-               "----------------------\n");
+        print_separator();
 
         return EXIT_SUCCESS;
 }
@@ -1649,55 +1803,67 @@ int Disassemble(debuggee *dbgee) {
         char module_name[MODULE_NAME_SIZE] = {0};
 
         if (_read_rip(dbgee, &rip) != 0) {
-                (void)(fprintf(stderr, "Failed to retrieve current RIP.\n"));
+                (void)(fprintf(
+                    stderr,
+                    COLOR_RED "Failed to retrieve current RIP.\n" COLOR_RESET));
                 return EXIT_FAILURE;
         }
 
         base_address = _get_module_base_address(dbgee->pid, rip, module_name,
                                                 sizeof(module_name));
         if (base_address == 0) {
-                (void)(fprintf(stderr, "Failed to retrieve base address.\n"));
+                (void)(fprintf(
+                    stderr, COLOR_RED
+                    "Failed to retrieve base address.\n" COLOR_RESET));
                 return EXIT_FAILURE;
         }
 
         if (_read_memory(dbgee->pid, rip, buf, sizeof(buf)) != 0) {
-                (void)(fprintf(stderr, "Failed to read memory at 0x%lx\n",
+                (void)(fprintf(stderr,
+                               COLOR_RED
+                               "Failed to read memory at 0x%lx\n" COLOR_RESET,
                                rip));
                 return EXIT_FAILURE;
         }
 
         if (cs_open(CS_ARCH_X86, CS_MODE_64, &handle) != CS_ERR_OK) {
-                (void)(fprintf(stderr, "Failed to initialize Capstone\n"));
+                (void)(fprintf(stderr, COLOR_RED
+                               "Failed to initialize Capstone\n" COLOR_RESET));
                 return EXIT_FAILURE;
         }
 
         cs_option(handle, CS_OPT_SYNTAX, CS_OPT_SYNTAX_INTEL);
 
         unsigned long offset = rip - base_address;
-        printf("Disassembling memory in module '%s' at RIP: 0x%016lx (Offset: "
-               "0x%lx)\n",
+        printf(COLOR_CYAN
+               "Disassembling memory in module '%s' at RIP: " COLOR_GREEN
+               "0x%016lx" COLOR_CYAN " (Offset: " COLOR_YELLOW
+               "0x%lx" COLOR_CYAN ")\n" COLOR_RESET,
                module_name, rip, offset);
 
         count = cs_disasm(handle, buf, sizeof(buf), rip, 0, &insn);
         if (count > 0) {
-                printf("-------------------------------------------------------"
-                       "------------------------------\n");
+                print_separator();
                 for (size_t i = 0; i < count; i++) {
                         unsigned long insn_offset =
                             insn[i].address - base_address;
-                        printf("0x%016lx (0x%lx): %-10s\t%s\n", insn[i].address,
-                               insn_offset, insn[i].mnemonic, insn[i].op_str);
+                        printf(COLOR_GREEN "0x%016lx" COLOR_RESET
+                                           " (" COLOR_YELLOW "0x%lx" COLOR_RESET
+                                           "): " COLOR_BLUE "%-10s" COLOR_RESET
+                                           "\t%s\n",
+                               insn[i].address, insn_offset, insn[i].mnemonic,
+                               insn[i].op_str);
 
                         if (strcmp(insn[i].mnemonic, "ret") == 0) {
                                 break;
                         }
                 }
-
-                printf("-------------------------------------------------------"
-                       "------------------------------\n");
+                print_separator();
                 cs_free(insn, count);
         } else {
-                (void)(fprintf(stderr, "Failed to disassemble given code!\n"));
+                (void)(fprintf(
+                    stderr, COLOR_RED
+                    "Failed to disassemble given code!\n" COLOR_RESET));
         }
 
         cs_close(&handle);
@@ -1708,20 +1874,22 @@ int Disassemble(debuggee *dbgee) {
 int DisplayGlobalVariables(debuggee *dbgee) {
         elf_symtab symtab_struct;
         if (!read_elf_symtab(dbgee->name, &symtab_struct)) {
-                (void)(fprintf(stderr, "Failed to read ELF symbol tables.\n"));
+                (void)(fprintf(
+                    stderr, COLOR_RED
+                    "Failed to read ELF symbol tables.\n" COLOR_RESET));
                 return EXIT_FAILURE;
         }
 
-        printf("Global Variables with Values:\n");
-        printf("---------------------------------------------------------------"
-               "-----------------\n");
-        printf("%-40s %-18s %-10s %-20s\n", "Name", "Address", "Size", "Value");
-        printf("---------------------------------------------------------------"
-               "-----------------\n");
+        printf(COLOR_CYAN "Global Variables with Values:\n" COLOR_RESET);
+        print_separator();
+        printf(COLOR_YELLOW "%-40s %-18s %-10s %-20s\n" COLOR_RESET, "Name",
+               "Address", "Size", "Value");
+        print_separator();
 
         unsigned long base_address = _get_load_base(dbgee);
         if (base_address == 0) {
-                (void)(fprintf(stderr, "Failed to get base address.\n"));
+                (void)(fprintf(stderr, COLOR_RED
+                               "Failed to get base address.\n" COLOR_RESET));
                 for (size_t i = 0; i < symtab_struct.num_entries; i++) {
                         free(symtab_struct.entries[i].symtab);
                         free(symtab_struct.entries[i].strtab);
@@ -1757,42 +1925,45 @@ int DisplayGlobalVariables(debuggee *dbgee) {
                                 continue;
                         }
 
-                        printf("%-40s 0x%016lx %-10lu 0x%016lx\n", sym_name,
-                               abs_address, sym.st_size, value);
+                        printf(COLOR_YELLOW "%-40s " COLOR_GREEN
+                                            "0x%016lx" COLOR_RESET " ",
+                               sym_name, abs_address);
+                        printf("%-10lu ", sym.st_size);
+                        printf(COLOR_GREEN "0x%016lx" COLOR_RESET "\n", value);
                 }
         }
-        printf("---------------------------------------------------------------"
-               "-----------------\n");
+
+        print_separator();
 
         for (size_t i = 0; i < symtab_struct.num_entries; i++) {
                 free(symtab_struct.entries[i].symtab);
                 free(symtab_struct.entries[i].strtab);
         }
         free(symtab_struct.entries);
+
         return EXIT_SUCCESS;
 }
 
-// TODO: Improve this function (or write a new one) by analyzing the Procedure
-//       Linkage Table (PLT) to identify functions that call `gettimeofday` or
-//       other time-related functions. This requires parsing the dynamic symbol
-//       table to detect indirect calls through the PLT. If the user is inside
-//       such a function, issue a warning.
-//       This enhancement is too complex for now. :-/
 int DisplayFunctionNames(debuggee *dbgee) { // NOLINT
         if (dbgee == NULL || dbgee->name == NULL) {
-                (void)(fprintf(stderr, "Invalid debuggee or debuggee name.\n"));
+                (void)(fprintf(
+                    stderr, COLOR_RED
+                    "Invalid debuggee or debuggee name.\n" COLOR_RESET));
                 return EXIT_FAILURE;
         }
 
         elf_symtab symtab_struct;
         if (!read_elf_symtab(dbgee->name, &symtab_struct)) {
-                (void)(fprintf(stderr, "Failed to read ELF symbol tables.\n"));
+                (void)(fprintf(
+                    stderr, COLOR_RED
+                    "Failed to read ELF symbol tables.\n" COLOR_RESET));
                 return EXIT_FAILURE;
         }
 
         unsigned long base_address = _get_load_base(dbgee);
         if (base_address == 0) {
-                (void)(fprintf(stderr, "Failed to get base address.\n"));
+                (void)(fprintf(stderr, COLOR_RED
+                               "Failed to get base address.\n" COLOR_RESET));
                 for (size_t i = 0; i < symtab_struct.num_entries; i++) {
                         free(symtab_struct.entries[i].symtab);
                         free(symtab_struct.entries[i].strtab);
@@ -1801,12 +1972,11 @@ int DisplayFunctionNames(debuggee *dbgee) { // NOLINT
                 return EXIT_FAILURE;
         }
 
-        printf("Function Names with Addresses:\n");
-        printf("---------------------------------------------------------------"
-               "-----------------\n");
-        printf("%-40s %-18s %-10s\n", "Name", "Address", "Size");
-        printf("---------------------------------------------------------------"
-               "-----------------\n");
+        printf(COLOR_CYAN "Function Names with Addresses:\n" COLOR_RESET);
+        print_separator();
+        printf(COLOR_YELLOW "%-40s %-18s %-10s\n" COLOR_RESET, "Name",
+               "Address", "Size");
+        print_separator();
 
         const char *warning_keywords[] = {"time", "timing", "date", "clock",
                                           "rdtsc"};
@@ -1840,11 +2010,15 @@ int DisplayFunctionNames(debuggee *dbgee) { // NOLINT
 
                         if ((sym.st_size > 0) ||
                             (should_warn && !strstr(sym_name, "@"))) {
-                                printf("%-40s 0x%016lx %-10lu", sym_name,
-                                       abs_address, sym.st_size);
+                                printf(COLOR_YELLOW "%-40s " COLOR_GREEN
+                                                    "0x%016lx" COLOR_RESET
+                                                    " %-10lu",
+                                       sym_name, abs_address, sym.st_size);
+
                                 if (should_warn) {
-                                        printf("  [WARNING: Time related "
-                                               "function]\n");
+                                        printf(" " COLOR_RED
+                                               "[WARNING: Time related "
+                                               "function]" COLOR_RESET "\n");
                                 } else {
                                         printf("\n");
                                 }
@@ -1852,8 +2026,7 @@ int DisplayFunctionNames(debuggee *dbgee) { // NOLINT
                 }
         }
 
-        printf("---------------------------------------------------------------"
-               "-----------------\n");
+        print_separator();
 
         for (size_t i = 0; i < symtab_struct.num_entries; i++) {
                 free(symtab_struct.entries[i].symtab);
@@ -1885,15 +2058,16 @@ unsigned long get_entry_absolute_address(debuggee *dbgee) {
         if (ehdr.e_type == ET_DYN) {
                 unsigned long base_address = _get_load_base(dbgee);
                 if (base_address == 0) {
-                        (void)(fprintf(
-                            stderr,
-                            "Failed to get base address for PIE binary.\n"));
+                        (void)(fprintf(stderr, COLOR_RED
+                                       "Failed to get base address for PIE "
+                                       "binary.\n" COLOR_RESET));
                         return 0;
                 }
                 entry_point += base_address;
         }
 
-        printf("Program entry point: 0x%lx\n", entry_point);
+        printf(COLOR_GREEN "Program entry point: 0x%lx\n" COLOR_RESET,
+               entry_point);
         return entry_point;
 }
 
@@ -1901,7 +2075,8 @@ int set_temp_sw_breakpoint(debuggee *dbgee, uint64_t addr) {
         uint64_t original_byte;
         if (!_set_sw_breakpoint(dbgee->pid, addr, &original_byte)) {
                 (void)(fprintf(stderr,
-                               "Failed to set temporary breakpoint at 0x%lx.\n",
+                               COLOR_RED "Failed to set temporary breakpoint "
+                                         "at 0x%lx.\n" COLOR_RESET,
                                addr));
                 return EXIT_FAILURE;
         }
@@ -1909,9 +2084,9 @@ int set_temp_sw_breakpoint(debuggee *dbgee, uint64_t addr) {
         size_t bp_index =
             add_software_breakpoint(dbgee->bp_handler, addr, original_byte);
         if (bp_index == (size_t)-1) {
-                (void)(fprintf(
-                    stderr,
-                    "Failed to add temporary breakpoint to handler.\n"));
+                (void)(fprintf(stderr,
+                               COLOR_RED "Failed to add temporary breakpoint "
+                                         "to handler.\n" COLOR_RESET));
                 return EXIT_FAILURE;
         }
 
@@ -1923,7 +2098,9 @@ int set_temp_sw_breakpoint(debuggee *dbgee, uint64_t addr) {
 bool is_software_breakpoint(debuggee *dbgee, size_t *bp_index_out) {
         unsigned long rip;
         if (_read_rip(dbgee, &rip) != 0) {
-                (void)(fprintf(stderr, "Failed to retrieve current RIP.\n"));
+                (void)(fprintf(
+                    stderr,
+                    COLOR_RED "Failed to retrieve current RIP.\n" COLOR_RESET));
                 return false;
         }
 
@@ -1943,7 +2120,9 @@ bool is_software_breakpoint(debuggee *dbgee, size_t *bp_index_out) {
 bool is_hardware_breakpoint(debuggee *dbgee, size_t *bp_index_out) {
         unsigned long rip;
         if (_read_rip(dbgee, &rip) != 0) {
-                (void)(fprintf(stderr, "Failed to retrieve current RIP.\n"));
+                (void)(fprintf(
+                    stderr,
+                    COLOR_RED "Failed to retrieve current RIP.\n" COLOR_RESET));
                 return false;
         }
 
@@ -1999,7 +2178,6 @@ bool is_catchpoint_event(debuggee *dbgee, size_t *bp_index_out,
                         return true;
                 }
         }
-
         return false;
 }
 
@@ -2059,47 +2237,55 @@ int handle_software_breakpoint(debuggee *dbgee, size_t bp_index) {
         unsigned char original_byte = bp->data.sw_bp.original_byte;
 
         if (_set_rip(dbgee, address) != 0) {
-                (void)(fprintf(stderr,
-                               "Failed to set current RIP to address 0x%lx.\n",
-                               address));
+                (void)(fprintf(
+                    stderr,
+                    COLOR_RED
+                    "Failed to set current RIP to address 0x%lx.\n" COLOR_RESET,
+                    address));
                 return EXIT_FAILURE;
         }
 
         if (_replace_sw_breakpoint(dbgee->pid, address, original_byte) !=
             EXIT_SUCCESS) {
-                (void)(fprintf(stderr,
-                               "Failed to remove software breakpoint while "
-                               "handling software breakpoint at 0x%lx\n",
-                               address));
+                (void)(fprintf(
+                    stderr,
+                    COLOR_RED
+                    "Failed to remove software breakpoint while handling "
+                    "software breakpoint at 0x%lx\n" COLOR_RESET,
+                    address));
                 return EXIT_FAILURE;
         }
 
         if (bp->temporary) {
                 if (remove_breakpoint(dbgee->bp_handler, bp_index) != 0) {
-                        (void)(fprintf(
-                            stderr,
-                            "Failed to remove temporary breakpoint at 0x%lx.\n",
-                            address));
+                        (void)(fprintf(stderr,
+                                       COLOR_RED
+                                       "Failed to remove temporary breakpoint "
+                                       "at 0x%lx.\n" COLOR_RESET,
+                                       address));
                         return EXIT_FAILURE;
                 }
         } else {
                 if (_step_replaced_instruction(dbgee) != EXIT_SUCCESS) {
-                        (void)(fprintf(stderr, "Failed to single step.\n"));
+                        (void)(fprintf(stderr, COLOR_RED
+                                       "Failed to single step.\n" COLOR_RESET));
                         return EXIT_FAILURE;
                 }
 
                 uint64_t original_data;
                 if (!_set_sw_breakpoint(dbgee->pid, address, &original_data)) {
-                        (void)(fprintf(
-                            stderr,
-                            "Failed to re-insert software breakpoint while "
-                            "handling software breakpoint at 0x%lx\n",
-                            address));
+                        (void)(fprintf(stderr,
+                                       COLOR_RED
+                                       "Failed to re-insert software "
+                                       "breakpoint while handling software "
+                                       "breakpoint at 0x%lx\n" COLOR_RESET,
+                                       address));
                         return EXIT_FAILURE;
                 }
         }
 
-        printf("Software breakpoint hit '%lx'.\n", address);
+        printf(COLOR_CYAN "Software breakpoint hit '%lx'.\n" COLOR_RESET,
+               address);
 
         return EXIT_SUCCESS;
 }
@@ -2108,7 +2294,8 @@ int handle_hardware_breakpoint(debuggee *dbgee, size_t bp_index) {
         breakpoint *bp = &dbgee->bp_handler->breakpoints[bp_index];
         unsigned long address = bp->data.hw_bp.address;
 
-        printf("Hardware breakpoint hit '%lx'.\n", address);
+        printf(COLOR_CYAN "Hardware breakpoint hit '%lx'.\n" COLOR_RESET,
+               address);
 
         return EXIT_SUCCESS;
 }
@@ -2117,7 +2304,8 @@ int handle_catchpoint_signal(debuggee *dbgee, size_t bp_index) {
         breakpoint *bp = &dbgee->bp_handler->breakpoints[bp_index];
         int signal_number = bp->data.cp_signal.signal;
 
-        printf("Catchpoint '%zu' caught signal %d.\n", bp_index, signal_number);
+        printf(COLOR_CYAN "Catchpoint '%zu' caught signal %d.\n" COLOR_RESET,
+               bp_index, signal_number);
 
         return EXIT_SUCCESS;
 }
@@ -2126,7 +2314,8 @@ int handle_catchpoint_event(debuggee *dbgee, size_t bp_index) {
         breakpoint *bp = &dbgee->bp_handler->breakpoints[bp_index];
         const char *event_name = bp->data.cp_event.event_name;
 
-        printf("Event catchpoint for '%s' triggered.\n", event_name);
+        printf(COLOR_CYAN "Event catchpoint for '%s' triggered.\n" COLOR_RESET,
+               event_name);
 
         return EXIT_SUCCESS;
 }
@@ -2135,7 +2324,7 @@ int handle_watchpoint(debuggee *dbgee, size_t bp_index) {
         breakpoint *bp = &dbgee->bp_handler->breakpoints[bp_index];
         unsigned long address = bp->data.hw_bp.address;
 
-        printf("Watchpoint hit '%lx'.\n", address);
+        printf(COLOR_CYAN "Watchpoint hit '%lx'.\n" COLOR_RESET, address);
 
         return EXIT_SUCCESS;
 }

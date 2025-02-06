@@ -6,12 +6,14 @@
 #include <unistd.h>
 
 #include "symtab.h"
+#include "ui.h"
 
 bool read_elf_symtab(const char *elf_path, // NOLINT
                      elf_symtab *symtab_struct) {
         if (elf_path == NULL || symtab_struct == NULL) {
-                (void)(fprintf(stderr,
-                               "Invalid arguments to read_elf_symtab.\n"));
+                (void)(fprintf(
+                    stderr, COLOR_RED
+                    "Invalid arguments to read_elf_symtab.\n" COLOR_RESET));
                 return false;
         }
 
@@ -29,7 +31,9 @@ bool read_elf_symtab(const char *elf_path, // NOLINT
         }
 
         if (memcmp(ehdr.e_ident, ELFMAG, SELFMAG) != 0) {
-                (void)(fprintf(stderr, "Not a valid ELF file: %s\n", elf_path));
+                (void)(fprintf(
+                    stderr, COLOR_RED "Not a valid ELF file: %s\n" COLOR_RESET,
+                    elf_path));
                 close(fd);
                 return false;
         }
@@ -162,9 +166,11 @@ bool read_elf_symtab(const char *elf_path, // NOLINT
         close(fd);
 
         if (symtab_struct->entries == NULL || symtab_struct->num_entries == 0) {
-                (void)(fprintf(stderr,
-                               "No symbol tables found in ELF file: %s\n",
-                               elf_path));
+                (void)(fprintf(
+                    stderr,
+                    COLOR_RED
+                    "No symbol tables found in ELF file: %s\n" COLOR_RESET,
+                    elf_path));
                 return false;
         }
 
