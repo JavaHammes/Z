@@ -11,10 +11,10 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
-#include "colors.h"
 #include "debuggee.h"
 #include "debugger.h"
 #include "debugger_commands.h"
+#include "ui.h"
 
 int set_ld_preload(const char *libs[], size_t count) {
         if (count == 0) {
@@ -102,7 +102,7 @@ void free_debugger(debugger *dbg) {
                                        "%d: %s\n" COLOR_RESET,
                                        dbg->dbgee.pid, strerror(errno)));
                 } else {
-                        printf(COLOR_GREEN
+                        printf(COLOR_CYAN
                                "Detached from child with PID: %d\n" COLOR_RESET,
                                dbg->dbgee.pid);
                 }
@@ -116,7 +116,7 @@ void free_debugger(debugger *dbg) {
                                                  "PID %d: %s\n" COLOR_RESET,
                                        dbg->dbgee.pid, strerror(errno)));
                 } else {
-                        printf(COLOR_GREEN
+                        printf(COLOR_CYAN
                                "Killed child with PID: %d\n" COLOR_RESET,
                                dbg->dbgee.pid);
                 }
@@ -163,7 +163,7 @@ int start_debuggee(debugger *dbg) {
         } else {
                 dbg->dbgee.pid = pid;
                 dbg->dbgee.state = RUNNING;
-                printf(COLOR_GREEN
+                printf(COLOR_CYAN
                        "Child process started with PID %d\n" COLOR_RESET,
                        dbg->dbgee.pid);
         }

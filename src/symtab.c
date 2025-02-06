@@ -5,8 +5,8 @@
 #include <string.h>
 #include <unistd.h>
 
-#include "colors.h"
 #include "symtab.h"
+#include "ui.h"
 
 bool read_elf_symtab(const char *elf_path, // NOLINT
                      elf_symtab *symtab_struct) {

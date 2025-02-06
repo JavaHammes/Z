@@ -5,7 +5,7 @@
 #include <string.h>
 
 #include "breakpoint_handler.h"
-#include "colors.h"
+#include "ui.h"
 
 static void _alloc_new_capacity(breakpoint_handler *handler) {
         size_t new_capacity =
@@ -112,6 +112,7 @@ size_t add_catchpoint_event(breakpoint_handler *handler,
         breakpoint_t bp_type = CATCHPOINT_EVENT_INVALID;
         if (strcmp(event_name, "fork") == 0) {
                 bp_type = CATCHPOINT_EVENT_FORK;
+        print_separator();
         } else if (strcmp(event_name, "vfork") == 0) {
                 bp_type = CATCHPOINT_EVENT_VFORK;
         } else if (strcmp(event_name, "clone") == 0) {
@@ -171,8 +172,7 @@ void list_breakpoints(const breakpoint_handler *handler) {
 
         printf(COLOR_CYAN "Current breakpoints:\n" COLOR_RESET);
         printf(COLOR_YELLOW "Idx\tType\t\tAddress\t\t\tDetails\n" COLOR_RESET);
-        printf(COLOR_MAGENTA "-------------------------------------------------"
-                             "--------------\n" COLOR_RESET);
+        print_separator();
 
         for (size_t i = 0; i < handler->count; ++i) {
                 printf("%zu\t", i);

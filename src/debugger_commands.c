@@ -5,10 +5,10 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "colors.h"
 #include "debuggee.h"
 #include "debugger.h"
 #include "debugger_commands.h"
+#include "ui.h"
 
 static const command_mapping command_map[] = {
     {"help", CLI_HELP},
@@ -302,7 +302,7 @@ int read_and_handle_user_command(debugger *dbg) {
                 printf(COLOR_RESET);
                 (void)(fflush(stdout));
 
-                input = linenoise("Z: ");
+                input = linenoise("<- Z -> ");
                 if (input == NULL) {
                         if (errno == EAGAIN) {
                                 handle_user_input(dbg, CLI_EXIT, "");

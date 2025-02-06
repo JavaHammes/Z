@@ -3,8 +3,8 @@
 #include <stdlib.h>
 #include <unistd.h>
 
-#include "colors.h"
 #include "debugger.h"
+#include "ui.h"
 
 bool is_relative_path(const char *filename) { return filename[0] == '.'; }
 

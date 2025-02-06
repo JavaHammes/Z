@@ -15,8 +15,8 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
-#include "colors.h"
 #include "debuggee.h"
+#include "ui.h"
 
 #define DR0_OFFSET offsetof(struct user, u_debugreg[0])
 #define DR1_OFFSET offsetof(struct user, u_debugreg[1])
@@ -58,6 +58,7 @@ enum {
         WATCHPOINT_LEN_8_BYTES = 0x2,
         NSIG = 31,
         LOWER_FOUR_BYTES_MASK = 0xF,
+        DEFAULT_SEPERATOR_LENGTH = 80,
 };
 
 static inline unsigned long DR7_ENABLE_LOCAL(int bpno) {
@@ -789,12 +790,10 @@ static bool _parse_breakpoint_argument(debuggee *dbgee, const char *arg,
 
 void Help(void) {
         printf(COLOR_CYAN "Z Anti-Anti-Debugger - Command List:\n" COLOR_RESET);
-        printf(COLOR_MAGENTA "================================================="
-                             "==============\n" COLOR_RESET);
+        print_separator_large();
 
         printf(COLOR_YELLOW "General Commands:\n" COLOR_RESET);
-        printf(COLOR_MAGENTA "-------------------------------------------------"
-                             "--------------\n" COLOR_RESET);
+        print_separator();
         printf(
             COLOR_GREEN
             "  help                - Display this help message\n" COLOR_RESET);
@@ -804,12 +803,10 @@ void Help(void) {
                "  clear               - Clear the screen\n" COLOR_RESET);
         printf(COLOR_GREEN
                "  !!                  - Repeat last command\n" COLOR_RESET);
-        printf(COLOR_MAGENTA "-------------------------------------------------"
-                             "--------------\n" COLOR_RESET);
+        print_separator();
 
         printf(COLOR_YELLOW "Execution Commands:\n" COLOR_RESET);
-        printf(COLOR_MAGENTA "-------------------------------------------------"
-                             "--------------\n" COLOR_RESET);
+        print_separator();
         printf(
             COLOR_GREEN
             "  run                 - Run the debuggee program\n" COLOR_RESET);
@@ -835,12 +832,10 @@ void Help(void) {
                            "at base_address + <offset>\n" COLOR_RESET);
         printf(COLOR_GREEN "  trace &<func_name>  - Trace execution starting "
                            "at address of function <func_name>\n" COLOR_RESET);
-        printf(COLOR_MAGENTA "-------------------------------------------------"
-                             "--------------\n" COLOR_RESET);
+        print_separator();
 
         printf(COLOR_YELLOW "Breakpoint Commands:\n" COLOR_RESET);
-        printf(COLOR_MAGENTA "-------------------------------------------------"
-                             "--------------\n" COLOR_RESET);
+        print_separator();
         printf(COLOR_GREEN
                "  points              - List all breakpoints\n" COLOR_RESET);
         printf(COLOR_GREEN "  break <addr>        - Set a software breakpoint "
@@ -873,12 +868,10 @@ void Help(void) {
                "fork, vfork, clone, exec, exit\n" COLOR_RESET);
         printf(COLOR_GREEN "  remove <idx>        - Remove the breakpoint at "
                            "index <idx>\n" COLOR_RESET);
-        printf(COLOR_MAGENTA "-------------------------------------------------"
-                             "--------------\n" COLOR_RESET);
+        print_separator();
 
         printf(COLOR_YELLOW "Inspection Commands:\n" COLOR_RESET);
-        printf(COLOR_MAGENTA "-------------------------------------------------"
-                             "--------------\n" COLOR_RESET);
+        print_separator();
         printf(COLOR_GREEN "  regs                - Display CPU registers "
                            "(general-purpose and debug)\n" COLOR_RESET);
         printf(COLOR_GREEN "  dump                - Dump memory at the current "
@@ -889,8 +882,7 @@ void Help(void) {
                            "and their values\n" COLOR_RESET);
         printf(COLOR_GREEN "  funcs               - List function names with "
                            "addresses\n" COLOR_RESET);
-        printf(COLOR_MAGENTA "================================================="
-                             "==============\n" COLOR_RESET);
+        print_separator_large();
 }
 
 int Run(debuggee *dbgee) {
@@ -1266,12 +1258,10 @@ int Registers(debuggee *dbgee) {
 
         printf(COLOR_CYAN "Register values for PID %d:\n" COLOR_RESET,
                dbgee->pid);
-        printf(COLOR_MAGENTA "-------------------------------------------------"
-                             "-------------\n" COLOR_RESET);
+        print_separator();
 
         printf(COLOR_YELLOW "General Purpose Registers:\n" COLOR_RESET);
-        printf(COLOR_MAGENTA "-------------------------------------------------"
-                             "-------------\n" COLOR_RESET);
+        print_separator();
         printf("  " COLOR_GREEN "R15: 0x%016llx" COLOR_RESET "    " COLOR_GREEN
                "R14: 0x%016llx\n" COLOR_RESET,
                regs.r15, regs.r14);
@@ -1296,22 +1286,18 @@ int Registers(debuggee *dbgee) {
         printf("  " COLOR_GREEN "RBP: 0x%016llx" COLOR_RESET "    " COLOR_GREEN
                "RSP: 0x%016llx\n" COLOR_RESET,
                regs.rbp, regs.rsp);
-        printf(COLOR_MAGENTA "-------------------------------------------------"
-                             "-------------\n" COLOR_RESET);
+        print_separator();
 
         printf(COLOR_YELLOW "Instruction Pointer and Flags:\n" COLOR_RESET);
-        printf(COLOR_MAGENTA "-------------------------------------------------"
-                             "-------------\n" COLOR_RESET);
+        print_separator();
         printf("  " COLOR_GREEN "RIP: 0x%016llx" COLOR_RESET "    " COLOR_GREEN
                "EFL: 0x%016llx\n" COLOR_RESET,
                regs.rip, regs.eflags);
         printf("  " COLOR_GREEN "CS:  0x%016llx\n" COLOR_RESET, regs.cs);
-        printf(COLOR_MAGENTA "-------------------------------------------------"
-                             "-------------\n" COLOR_RESET);
+        print_separator();
 
         printf(COLOR_YELLOW "Debug Registers:\n" COLOR_RESET);
-        printf(COLOR_MAGENTA "-------------------------------------------------"
-                             "-------------\n" COLOR_RESET);
+        print_separator();
         printf("  " COLOR_GREEN "DR0: 0x%016lx" COLOR_RESET "    " COLOR_GREEN
                "DR1: 0x%016lx\n" COLOR_RESET,
                dr0, dr1);
@@ -1319,8 +1305,7 @@ int Registers(debuggee *dbgee) {
                "DR3: 0x%016lx\n" COLOR_RESET,
                dr2, dr3);
         printf("  " COLOR_GREEN "DR7: 0x%016lx\n" COLOR_RESET, dr7);
-        printf(COLOR_MAGENTA "-------------------------------------------------"
-                             "-------------\n" COLOR_RESET);
+        print_separator();
 
         return EXIT_SUCCESS;
 }
@@ -1761,15 +1746,11 @@ int Dump(debuggee *dbgee) { // NOLINT
 
         cs_close(&handle);
 
-        printf(COLOR_CYAN "Memory dump in module '%s' at RIP: 0x%016lx "
-                          "(Offset: 0x%lx)\n" COLOR_RESET,
+        printf(COLOR_CYAN "Memory dump in module '%s' at RIP: " COLOR_GREEN
+                          "0x%016lx" COLOR_CYAN " (Offset: " COLOR_YELLOW
+                          "0x%lx" COLOR_CYAN ")\n" COLOR_RESET,
                module_name, rip, rip - base_address);
-        printf(COLOR_MAGENTA "-------------------------------------------------"
-                             "--------------\n" COLOR_RESET);
-        printf(COLOR_YELLOW "Offset              Hexadecimal                   "
-                            "          ASCII\n" COLOR_RESET);
-        printf(COLOR_MAGENTA "-------------------------------------------------"
-                             "--------------\n" COLOR_RESET);
+        print_separator();
 
         for (size_t i = 0; i < dump_length; i += WORD_LENGTH) {
                 unsigned long current_address = rip + i;
@@ -1807,8 +1788,7 @@ int Dump(debuggee *dbgee) { // NOLINT
                 }
         }
 
-        printf(COLOR_MAGENTA "-------------------------------------------------"
-                             "--------------\n" COLOR_RESET);
+        print_separator();
 
         return EXIT_SUCCESS;
 }
@@ -1863,8 +1843,7 @@ int Disassemble(debuggee *dbgee) {
 
         count = cs_disasm(handle, buf, sizeof(buf), rip, 0, &insn);
         if (count > 0) {
-                printf(COLOR_MAGENTA "-----------------------------------------"
-                                     "----------------------\n" COLOR_RESET);
+                print_separator();
                 for (size_t i = 0; i < count; i++) {
                         unsigned long insn_offset =
                             insn[i].address - base_address;
@@ -1879,8 +1858,7 @@ int Disassemble(debuggee *dbgee) {
                                 break;
                         }
                 }
-                printf(COLOR_MAGENTA "-----------------------------------------"
-                                     "----------------------\n" COLOR_RESET);
+                print_separator();
                 cs_free(insn, count);
         } else {
                 (void)(fprintf(
@@ -1903,12 +1881,10 @@ int DisplayGlobalVariables(debuggee *dbgee) {
         }
 
         printf(COLOR_CYAN "Global Variables with Values:\n" COLOR_RESET);
-        printf(COLOR_MAGENTA "-------------------------------------------------"
-                             "----------------------\n" COLOR_RESET);
+        print_separator();
         printf(COLOR_YELLOW "%-40s %-18s %-10s %-20s\n" COLOR_RESET, "Name",
                "Address", "Size", "Value");
-        printf(COLOR_MAGENTA "-------------------------------------------------"
-                             "----------------------\n" COLOR_RESET);
+        print_separator();
 
         unsigned long base_address = _get_load_base(dbgee);
         if (base_address == 0) {
@@ -1957,8 +1933,7 @@ int DisplayGlobalVariables(debuggee *dbgee) {
                 }
         }
 
-        printf(COLOR_MAGENTA "-------------------------------------------------"
-                             "----------------------\n" COLOR_RESET);
+        print_separator();
 
         for (size_t i = 0; i < symtab_struct.num_entries; i++) {
                 free(symtab_struct.entries[i].symtab);
@@ -1998,12 +1973,10 @@ int DisplayFunctionNames(debuggee *dbgee) { // NOLINT
         }
 
         printf(COLOR_CYAN "Function Names with Addresses:\n" COLOR_RESET);
-        printf(COLOR_MAGENTA "-------------------------------------------------"
-                             "----------------------\n" COLOR_RESET);
+        print_separator();
         printf(COLOR_YELLOW "%-40s %-18s %-10s\n" COLOR_RESET, "Name",
                "Address", "Size");
-        printf(COLOR_MAGENTA "-------------------------------------------------"
-                             "----------------------\n" COLOR_RESET);
+        print_separator();
 
         const char *warning_keywords[] = {"time", "timing", "date", "clock",
                                           "rdtsc"};
@@ -2053,8 +2026,7 @@ int DisplayFunctionNames(debuggee *dbgee) { // NOLINT
                 }
         }
 
-        printf(COLOR_MAGENTA "-------------------------------------------------"
-                             "----------------------\n" COLOR_RESET);
+        print_separator();
 
         for (size_t i = 0; i < symtab_struct.num_entries; i++) {
                 free(symtab_struct.entries[i].symtab);
@@ -2312,7 +2284,7 @@ int handle_software_breakpoint(debuggee *dbgee, size_t bp_index) {
                 }
         }
 
-        printf(COLOR_MAGENTA "Software breakpoint hit '%lx'.\n" COLOR_RESET,
+        printf(COLOR_CYAN "Software breakpoint hit '%lx'.\n" COLOR_RESET,
                address);
 
         return EXIT_SUCCESS;
@@ -2322,7 +2294,7 @@ int handle_hardware_breakpoint(debuggee *dbgee, size_t bp_index) {
         breakpoint *bp = &dbgee->bp_handler->breakpoints[bp_index];
         unsigned long address = bp->data.hw_bp.address;
 
-        printf(COLOR_MAGENTA "Hardware breakpoint hit '%lx'.\n" COLOR_RESET,
+        printf(COLOR_CYAN "Hardware breakpoint hit '%lx'.\n" COLOR_RESET,
                address);
 
         return EXIT_SUCCESS;
@@ -2332,7 +2304,7 @@ int handle_catchpoint_signal(debuggee *dbgee, size_t bp_index) {
         breakpoint *bp = &dbgee->bp_handler->breakpoints[bp_index];
         int signal_number = bp->data.cp_signal.signal;
 
-        printf(COLOR_MAGENTA "Catchpoint '%zu' caught signal %d.\n" COLOR_RESET,
+        printf(COLOR_CYAN "Catchpoint '%zu' caught signal %d.\n" COLOR_RESET,
                bp_index, signal_number);
 
         return EXIT_SUCCESS;
@@ -2342,8 +2314,7 @@ int handle_catchpoint_event(debuggee *dbgee, size_t bp_index) {
         breakpoint *bp = &dbgee->bp_handler->breakpoints[bp_index];
         const char *event_name = bp->data.cp_event.event_name;
 
-        printf(COLOR_MAGENTA
-               "Event catchpoint for '%s' triggered.\n" COLOR_RESET,
+        printf(COLOR_CYAN "Event catchpoint for '%s' triggered.\n" COLOR_RESET,
                event_name);
 
         return EXIT_SUCCESS;
@@ -2353,7 +2324,7 @@ int handle_watchpoint(debuggee *dbgee, size_t bp_index) {
         breakpoint *bp = &dbgee->bp_handler->breakpoints[bp_index];
         unsigned long address = bp->data.hw_bp.address;
 
-        printf(COLOR_MAGENTA "Watchpoint hit '%lx'.\n" COLOR_RESET, address);
+        printf(COLOR_CYAN "Watchpoint hit '%lx'.\n" COLOR_RESET, address);
 
         return EXIT_SUCCESS;
 }
