@@ -112,7 +112,7 @@ size_t add_catchpoint_event(breakpoint_handler *handler,
         breakpoint_t bp_type = CATCHPOINT_EVENT_INVALID;
         if (strcmp(event_name, "fork") == 0) {
                 bp_type = CATCHPOINT_EVENT_FORK;
-        print_separator();
+                print_separator();
         } else if (strcmp(event_name, "vfork") == 0) {
                 bp_type = CATCHPOINT_EVENT_VFORK;
         } else if (strcmp(event_name, "clone") == 0) {

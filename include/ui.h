@@ -11,7 +11,7 @@
 #define COLOR_CYAN "\033[36m"
 #define COLOR_WHITE "\033[37m"
 
-#define LINE_LENGTH 103
+enum { LINE_LENGTH = 103 };
 
 static inline void print_separator(void) {
         printf(COLOR_MAGENTA);

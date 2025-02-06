@@ -68,9 +68,11 @@ int handle_user_input(debugger *dbg, command_t cmd_type, // NOLINT
                       const char *arg) {
         switch (cmd_type) {
         case CLI_EXIT: {
-                char *confirm = linenoise(
-                    COLOR_RED
-                    "Are you sure you want to exit? (y/n): " COLOR_RESET);
+                printf(COLOR_RED);
+                (void)(fflush(stdout));
+                char *confirm = linenoise("Are you sure you want to exit? (y/n): ");
+                (void)(printf(COLOR_RESET));
+
                 if (confirm != NULL) {
                         if (confirm[0] == 'y' || confirm[0] == 'Y') {
                                 free_debugger(dbg);
