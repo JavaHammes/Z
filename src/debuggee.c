@@ -976,8 +976,8 @@ int StepOver(debuggee *dbgee) {
         while (_is_call_instruction(dbgee, final_addr)) {
 
                 // Set temporary breakpoint at the instruction after the call
-                // instruction. On x86_64 we wissen, dass wir 5 addieren müssen:
-                // 1 Byte für den Opcode und 4 für den relativen Offset.
+                // instruction. On x86_64 we know that we need to add 5. 1 byte
+                // for oppcode and 4 for the relative offset.
                 final_addr += NEXT_INSTRUCTION_OFFSET;
         }
 

@@ -11,7 +11,7 @@
 
 typedef FILE *(*orig_fopen_f_type)(const char *, const char *);
 
-FILE *fopen(const char *__restrict__filename, const char *__modes) {
+FILE *fopen(const char *__restrict__filename, const char *__modes) { // NOLINT
         static orig_fopen_f_type real_fopen = NULL;
 
         if (!real_fopen) {
