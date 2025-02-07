@@ -1,9 +1,10 @@
-#include "linenoise.h"
 #include <errno.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+#include "linenoise.h"
 
 #include "debuggee.h"
 #include "debugger.h"
@@ -23,6 +24,7 @@ static const command_mapping command_map[] = {
     {"jump", DBG_JUMP},
     {"trace", DBG_TRACE},
     {"regs", DBG_REGISTERS},
+    {"set", DBG_SET_REG},
     {"break", DBG_BREAK},
     {"hbreak", DBG_HBREAK},
     {"watch", DBG_WATCH},
@@ -30,6 +32,7 @@ static const command_mapping command_map[] = {
     {"points", DBG_LIST_BREAKPOINTS},
     {"remove", DBG_REMOVE_BREAKPOINT},
     {"dump", DBG_DUMP},
+    {"patch", DBG_PATCH},
     {"dis", DBG_DIS},
     {"vars", DBG_GLOB_VARS},
     {"funcs", DBG_FUNC_NAMES},
@@ -70,7 +73,8 @@ int handle_user_input(debugger *dbg, command_t cmd_type, // NOLINT
         case CLI_EXIT: {
                 printf(COLOR_RED);
                 (void)(fflush(stdout));
-                char *confirm = linenoise("Are you sure you want to exit? (y/n): ");
+                char *confirm =
+                    linenoise("Are you sure you want to exit? (y/n): ");
                 (void)(printf(COLOR_RESET));
 
                 if (confirm != NULL) {
@@ -181,6 +185,21 @@ int handle_user_input(debugger *dbg, command_t cmd_type, // NOLINT
                 }
                 return PROMPT_USER_AGAIN;
 
+        case DBG_SET_REG:
+                if (arg == NULL) {
+                        printf(COLOR_YELLOW
+                               "Usage: set <reg>=<value>\n" COLOR_RESET);
+                        return PROMPT_USER_AGAIN;
+                }
+
+                if (SetRegister(&dbg->dbgee, arg) != 0) {
+                        printf(COLOR_RED
+                               "Failed to set register '%s'.\n" COLOR_RESET,
+                               arg);
+                }
+
+                return PROMPT_USER_AGAIN;
+
         case DBG_BREAK:
                 if (arg == NULL) {
                         printf(COLOR_YELLOW
@@ -258,6 +277,21 @@ int handle_user_input(debugger *dbg, command_t cmd_type, // NOLINT
                 if (Dump(&dbg->dbgee) != 0) {
                         printf(COLOR_RED
                                "Failed to dump memory.\n" COLOR_RESET);
+                }
+                return PROMPT_USER_AGAIN;
+
+        case DBG_PATCH:
+                if (arg == NULL) {
+                        printf(COLOR_YELLOW
+                               "Usage: patch "
+                               "<addr>|*<offset>=<opcode(s)> (No spaces "
+                               "between opcodes)\n" COLOR_RESET);
+                        return PROMPT_USER_AGAIN;
+                }
+                if (Patch(&dbg->dbgee, arg) != 0) {
+                        printf(COLOR_RED "Failed to patch "
+                                         "'%s'.\n" COLOR_RESET,
+                               arg);
                 }
                 return PROMPT_USER_AGAIN;
 

@@ -38,8 +38,11 @@ int StepOut(debuggee *dbgee);
 int Skip(debuggee *dbgee, const char *arg);
 int Jump(debuggee *dbgee, const char *arg);
 int Trace(debuggee *dbgee, const char *arg);
+
 int Registers(debuggee *dbgee);
+int SetRegister(debuggee *dbgee, const char *arg);
 int Dump(debuggee *dbgee);
+int Patch(debuggee *dbgee, const char *arg);
 int Disassemble(debuggee *dbgee);
 int DisplayGlobalVariables(debuggee *dbgee);
 int DisplayFunctionNames(debuggee *dbgee);
