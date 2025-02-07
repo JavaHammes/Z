@@ -788,6 +788,156 @@ static bool _parse_breakpoint_argument(debuggee *dbgee, const char *arg,
         return true;
 }
 
+static int _parse_set_register_arg(const char *arg, char **reg,
+                                   unsigned long long *value) {
+        if (arg == NULL || reg == NULL || value == NULL) {
+                (void)(fprintf(stderr, COLOR_RED
+                               "Invalid arguments to "
+                               "parse_set_register_arg.\n" COLOR_RESET));
+                return EXIT_FAILURE;
+        }
+
+        const char *delimiter = strchr(arg, '=');
+        if (delimiter == NULL) {
+                (void)(fprintf(
+                    stderr, COLOR_RED
+                    "Invalid format. Expected <reg>=<value>.\n" COLOR_RESET));
+                return EXIT_FAILURE;
+        }
+
+        size_t reg_len = delimiter - arg;
+        char *reg_name = malloc(reg_len + 1);
+        if (reg_name == NULL) {
+                perror("malloc");
+                return EXIT_FAILURE;
+        }
+        strncpy(reg_name, arg, reg_len);
+        reg_name[reg_len] = '\0';
+
+        char *endptr;
+        unsigned long long parsed_value = strtoull(delimiter + 1, &endptr, 0);
+        if (endptr == delimiter + 1 || *endptr != '\0') {
+                (void)(fprintf(
+                    stderr, COLOR_RED "Invalid numeric value: %s\n" COLOR_RESET,
+                    delimiter + 1));
+                free(reg_name);
+                return EXIT_FAILURE;
+        }
+
+        *reg = reg_name;
+        *value = parsed_value;
+        return EXIT_SUCCESS;
+}
+
+static int _parse_patch_argument(const char *arg, debuggee *dbgee,
+                                 uintptr_t *address_out,
+                                 unsigned char **opcode_bytes,
+                                 size_t *num_bytes) {
+        char *args_copy = strdup(arg);
+        if (args_copy == NULL) {
+                perror("strdup");
+                return EXIT_FAILURE;
+        }
+
+        char *equals = strchr(args_copy, '=');
+        if (equals == NULL) {
+                (void)(fprintf(
+                    stderr, COLOR_RED
+                    "Error: Missing '=' delimiter in argument.\n" COLOR_RESET));
+                free(args_copy);
+                return EXIT_FAILURE;
+        }
+
+        *equals = '\0';
+        char *addr_str = args_copy;
+        char *opcodes_str = equals + 1;
+        while (*addr_str && isspace((unsigned char)*addr_str)) {
+                addr_str++;
+        }
+
+        if (*addr_str == '\0') {
+                (void)(fprintf(stderr,
+                               COLOR_RED "Error: Missing address argument "
+                                         "before '='.\n" COLOR_RESET));
+                free(args_copy);
+                return EXIT_FAILURE;
+        }
+
+        while (*opcodes_str && isspace((unsigned char)*opcodes_str)) {
+                opcodes_str++;
+        }
+
+        if (*opcodes_str == '\0') {
+                (void)(fprintf(stderr,
+                               COLOR_RED "Error: Missing opcodes argument "
+                                         "after '='.\n" COLOR_RESET));
+                free(args_copy);
+                return EXIT_FAILURE;
+        }
+
+        uintptr_t address = 0;
+        if (!_parse_breakpoint_argument(dbgee, addr_str, &address) ||
+            address == 0) {
+                (void)(fprintf(stderr,
+                               COLOR_RED
+                               "Error: Invalid address: %s\n" COLOR_RESET,
+                               addr_str));
+                free(args_copy);
+                return EXIT_FAILURE;
+        }
+
+        if (!_is_valid_address(dbgee, address)) {
+                (void)(fprintf(stderr,
+                               COLOR_RED
+                               "Error: Address 0x%lx is not a valid mapped "
+                               "address.\n" COLOR_RESET,
+                               address));
+                free(args_copy);
+                return EXIT_FAILURE;
+        }
+
+        size_t len = strlen(opcodes_str);
+        if (len % 2 != 0) {
+                (void)(fprintf(stderr,
+                               COLOR_RED "Error: Hex string must have an even "
+                                         "number of digits.\n" COLOR_RESET));
+                free(args_copy);
+                return EXIT_FAILURE;
+        }
+
+        size_t n_bytes = len / 2;
+        unsigned char *op_bytes = malloc(n_bytes);
+        if (op_bytes == NULL) {
+                perror("malloc");
+                free(args_copy);
+                return EXIT_FAILURE;
+        }
+
+        for (size_t i = 0; i < n_bytes; i++) {
+                char byte_str[3] = {opcodes_str[2 * i], opcodes_str[2 * i + 1],
+                                    '\0'};
+                char *endptr = NULL;
+                unsigned long byte_val = strtoul(byte_str, &endptr, HEX_BASE);
+                if (endptr == byte_str || byte_val > MAX_BYTE_VALUE) {
+                        (void)(fprintf(
+                            stderr,
+                            COLOR_RED
+                            "Error: Invalid hex byte '%s'.\n" COLOR_RESET,
+                            byte_str));
+                        free(op_bytes);
+                        free(args_copy);
+                        return EXIT_FAILURE;
+                }
+                op_bytes[i] = (unsigned char)byte_val;
+        }
+
+        free(args_copy);
+        *address_out = address;
+        *opcode_bytes = op_bytes;
+        *num_bytes = n_bytes;
+        return EXIT_SUCCESS;
+}
+
 void Help(void) {
         printf(COLOR_CYAN "Z Anti-Anti-Debugger - Command List:\n" COLOR_RESET);
         print_separator_large();
@@ -882,6 +1032,11 @@ void Help(void) {
                            "and their values\n" COLOR_RESET);
         printf(COLOR_GREEN "  funcs               - List function names with "
                            "addresses\n" COLOR_RESET);
+
+        printf(COLOR_YELLOW "Modification Commands:\n" COLOR_RESET);
+        print_separator();
+        printf(COLOR_GREEN "  set <reg>=<value>   - Set register <reg> to "
+                           "<value>\n" COLOR_RESET);
         print_separator_large();
 }
 
@@ -1262,51 +1417,128 @@ int Registers(debuggee *dbgee) {
 
         printf(COLOR_YELLOW "General Purpose Registers:\n" COLOR_RESET);
         print_separator();
-        printf("  " COLOR_GREEN "R15: 0x%016llx" COLOR_RESET "    " COLOR_GREEN
-               "R14: 0x%016llx\n" COLOR_RESET,
+        printf("  " COLOR_GREEN "R15:" COLOR_BLUE " 0x%016llx" COLOR_RESET
+               "    " COLOR_GREEN "R14:" COLOR_BLUE " 0x%016llx\n" COLOR_RESET,
                regs.r15, regs.r14);
-        printf("  " COLOR_GREEN "R13: 0x%016llx" COLOR_RESET "    " COLOR_GREEN
-               "R12: 0x%016llx\n" COLOR_RESET,
+        printf("  " COLOR_GREEN "R13:" COLOR_BLUE " 0x%016llx" COLOR_RESET
+               "    " COLOR_GREEN "R12:" COLOR_BLUE " 0x%016llx\n" COLOR_RESET,
                regs.r13, regs.r12);
-        printf("  " COLOR_GREEN "R11: 0x%016llx" COLOR_RESET "    " COLOR_GREEN
-               "R10: 0x%016llx\n" COLOR_RESET,
+        printf("  " COLOR_GREEN "R11:" COLOR_BLUE " 0x%016llx" COLOR_RESET
+               "    " COLOR_GREEN "R10:" COLOR_BLUE " 0x%016llx\n" COLOR_RESET,
                regs.r11, regs.r10);
-        printf("  " COLOR_GREEN "R9:  0x%016llx" COLOR_RESET "    " COLOR_GREEN
-               "R8:  0x%016llx\n" COLOR_RESET,
+        printf("  " COLOR_GREEN "R9:" COLOR_BLUE "  0x%016llx" COLOR_RESET
+               "    " COLOR_GREEN "R8:" COLOR_BLUE "  0x%016llx\n" COLOR_RESET,
                regs.r9, regs.r8);
-        printf("  " COLOR_GREEN "RAX: 0x%016llx" COLOR_RESET "    " COLOR_GREEN
-               "RBX: 0x%016llx\n" COLOR_RESET,
+        printf("  " COLOR_GREEN "RAX:" COLOR_BLUE " 0x%016llx" COLOR_RESET
+               "    " COLOR_GREEN "RBX:" COLOR_BLUE " 0x%016llx\n" COLOR_RESET,
                regs.rax, regs.rbx);
-        printf("  " COLOR_GREEN "RCX: 0x%016llx" COLOR_RESET "    " COLOR_GREEN
-               "RDX: 0x%016llx\n" COLOR_RESET,
+        printf("  " COLOR_GREEN "RCX:" COLOR_BLUE " 0x%016llx" COLOR_RESET
+               "    " COLOR_GREEN "RDX:" COLOR_BLUE " 0x%016llx\n" COLOR_RESET,
                regs.rcx, regs.rdx);
-        printf("  " COLOR_GREEN "RSI: 0x%016llx" COLOR_RESET "    " COLOR_GREEN
-               "RDI: 0x%016llx\n" COLOR_RESET,
+        printf("  " COLOR_GREEN "RSI:" COLOR_BLUE " 0x%016llx" COLOR_RESET
+               "    " COLOR_GREEN "RDI:" COLOR_BLUE " 0x%016llx\n" COLOR_RESET,
                regs.rsi, regs.rdi);
-        printf("  " COLOR_GREEN "RBP: 0x%016llx" COLOR_RESET "    " COLOR_GREEN
-               "RSP: 0x%016llx\n" COLOR_RESET,
+        printf("  " COLOR_GREEN "RBP:" COLOR_BLUE " 0x%016llx" COLOR_RESET
+               "    " COLOR_GREEN "RSP:" COLOR_BLUE " 0x%016llx\n" COLOR_RESET,
                regs.rbp, regs.rsp);
         print_separator();
 
         printf(COLOR_YELLOW "Instruction Pointer and Flags:\n" COLOR_RESET);
         print_separator();
-        printf("  " COLOR_GREEN "RIP: 0x%016llx" COLOR_RESET "    " COLOR_GREEN
-               "EFL: 0x%016llx\n" COLOR_RESET,
+        printf("  " COLOR_GREEN "RIP:" COLOR_BLUE " 0x%016llx" COLOR_RESET
+               "    " COLOR_GREEN "EFL:" COLOR_BLUE " 0x%016llx\n" COLOR_RESET,
                regs.rip, regs.eflags);
-        printf("  " COLOR_GREEN "CS:  0x%016llx\n" COLOR_RESET, regs.cs);
+        printf("  " COLOR_GREEN "CS:" COLOR_BLUE "  0x%016llx\n" COLOR_RESET,
+               regs.cs);
         print_separator();
 
         printf(COLOR_YELLOW "Debug Registers:\n" COLOR_RESET);
         print_separator();
-        printf("  " COLOR_GREEN "DR0: 0x%016lx" COLOR_RESET "    " COLOR_GREEN
-               "DR1: 0x%016lx\n" COLOR_RESET,
+        printf("  " COLOR_GREEN "DR0:" COLOR_BLUE " 0x%016lx" COLOR_RESET
+               "    " COLOR_GREEN "DR1:" COLOR_BLUE " 0x%016lx\n" COLOR_RESET,
                dr0, dr1);
-        printf("  " COLOR_GREEN "DR2: 0x%016lx" COLOR_RESET "    " COLOR_GREEN
-               "DR3: 0x%016lx\n" COLOR_RESET,
+        printf("  " COLOR_GREEN "DR2:" COLOR_BLUE " 0x%016lx" COLOR_RESET
+               "    " COLOR_GREEN "DR3:" COLOR_BLUE " 0x%016lx\n" COLOR_RESET,
                dr2, dr3);
-        printf("  " COLOR_GREEN "DR7: 0x%016lx\n" COLOR_RESET, dr7);
+        printf("  " COLOR_GREEN "DR7:" COLOR_BLUE " 0x%016lx\n" COLOR_RESET,
+               dr7);
         print_separator();
 
+        return EXIT_SUCCESS;
+}
+
+int SetRegister(debuggee *dbgee, const char *arg) {
+        char *reg_name = NULL;
+        unsigned long long value = 0;
+        if (_parse_set_register_arg(arg, &reg_name, &value) != EXIT_SUCCESS) {
+                printf(COLOR_RED
+                       "Failed to parse SetRegister arguments '%s'" COLOR_RESET,
+                       arg);
+                return EXIT_FAILURE;
+        }
+
+        struct user_regs_struct regs;
+        if (ptrace(PTRACE_GETREGS, dbgee->pid, NULL, &regs) == -1) {
+                perror("ptrace(PTRACE_GETREGS) failed");
+                free(reg_name);
+                return EXIT_FAILURE;
+        }
+
+        if (strcmp(reg_name, "r15") == 0) {
+                regs.r15 = value;
+        } else if (strcmp(reg_name, "r14") == 0) {
+                regs.r14 = value;
+        } else if (strcmp(reg_name, "r13") == 0) {
+                regs.r13 = value;
+        } else if (strcmp(reg_name, "r12") == 0) {
+                regs.r12 = value;
+        } else if (strcmp(reg_name, "r11") == 0) {
+                regs.r11 = value;
+        } else if (strcmp(reg_name, "r10") == 0) {
+                regs.r10 = value;
+        } else if (strcmp(reg_name, "r9") == 0) {
+                regs.r9 = value;
+        } else if (strcmp(reg_name, "r8") == 0) {
+                regs.r8 = value;
+        } else if (strcmp(reg_name, "rax") == 0) {
+                regs.rax = value;
+        } else if (strcmp(reg_name, "rbx") == 0) {
+                regs.rbx = value;
+        } else if (strcmp(reg_name, "rcx") == 0) {
+                regs.rcx = value;
+        } else if (strcmp(reg_name, "rdx") == 0) {
+                regs.rdx = value;
+        } else if (strcmp(reg_name, "rsi") == 0) {
+                regs.rsi = value;
+        } else if (strcmp(reg_name, "rdi") == 0) {
+                regs.rdi = value;
+        } else if (strcmp(reg_name, "rbp") == 0) {
+                regs.rbp = value;
+        } else if (strcmp(reg_name, "rsp") == 0) {
+                regs.rsp = value;
+        } else if (strcmp(reg_name, "rip") == 0) {
+                regs.rip = value;
+        } else if (strcmp(reg_name, "eflags") == 0) {
+                regs.eflags = value;
+        } else if (strcmp(reg_name, "cs") == 0) {
+                regs.cs = value;
+        } else {
+                (void)(fprintf(stderr,
+                               COLOR_RED "Unknown register: %s\n" COLOR_RESET,
+                               reg_name));
+                free(reg_name);
+                return EXIT_FAILURE;
+        }
+
+        if (ptrace(PTRACE_SETREGS, dbgee->pid, NULL, &regs) == -1) {
+                perror("ptrace(PTRACE_SETREGS) failed");
+                free(reg_name);
+                return EXIT_FAILURE;
+        }
+
+        printf(COLOR_GREEN "Register %s set to 0x%llx\n" COLOR_RESET, reg_name,
+               value);
+        free(reg_name);
         return EXIT_SUCCESS;
 }
 
@@ -1793,6 +2025,58 @@ int Dump(debuggee *dbgee) { // NOLINT
         return EXIT_SUCCESS;
 }
 
+int Patch(debuggee *dbgee, const char *arg) { // NOLINT
+        uintptr_t address = 0;
+        unsigned char *opcode_bytes = NULL;
+        size_t num_bytes = 0;
+
+        if (_parse_patch_argument(arg, dbgee, &address, &opcode_bytes,
+                                  &num_bytes) != EXIT_SUCCESS) {
+                return EXIT_FAILURE;
+        }
+
+        size_t word_size = sizeof(long);
+        unsigned long patch_start = address;
+        unsigned long patch_end = address + num_bytes;
+        unsigned long aligned_start = patch_start & ~(word_size - 1);
+        unsigned long aligned_end =
+            ((patch_end + word_size - 1) / word_size) * word_size;
+        for (unsigned long current = aligned_start; current < aligned_end;
+             current += word_size) {
+                errno = 0;
+                long word = ptrace(PTRACE_PEEKDATA, dbgee->pid, current, NULL);
+                if (word == -1 && errno != 0) {
+                        perror("ptrace(PTRACE_PEEKDATA) in Patch");
+                        free(opcode_bytes);
+                        return EXIT_FAILURE;
+                }
+
+                unsigned long uword = (unsigned long)word;
+                for (size_t j = 0; j < word_size; j++) {
+                        unsigned long cur_addr = current + j;
+                        if (cur_addr >= patch_start && cur_addr < patch_end) {
+                                size_t patch_index = cur_addr - patch_start;
+                                uword =
+                                    (uword & ~((unsigned long)BYTE_MASK
+                                               << (j * BYTE_LENGTH))) |
+                                    (((unsigned long)opcode_bytes[patch_index])
+                                     << (j * BYTE_LENGTH));
+                        }
+                }
+
+                if (ptrace(PTRACE_POKEDATA, dbgee->pid, current, uword) == -1) {
+                        perror("ptrace(PTRACE_POKEDATA) in Patch");
+                        free(opcode_bytes);
+                        return EXIT_FAILURE;
+                }
+        }
+
+        printf(COLOR_GREEN "Patched %zu bytes at address 0x%lx.\n" COLOR_RESET,
+               num_bytes, address);
+        free(opcode_bytes);
+        return EXIT_SUCCESS;
+}
+
 int Disassemble(debuggee *dbgee) {
         unsigned long rip;
         unsigned char buf[DUMP_SIZE];
@@ -1928,8 +2212,8 @@ int DisplayGlobalVariables(debuggee *dbgee) {
                         printf(COLOR_YELLOW "%-40s " COLOR_GREEN
                                             "0x%016lx" COLOR_RESET " ",
                                sym_name, abs_address);
-                        printf("%-10lu ", sym.st_size);
-                        printf(COLOR_GREEN "0x%016lx" COLOR_RESET "\n", value);
+                        printf(COLOR_BLUE "%-10lu " COLOR_RESET, sym.st_size);
+                        printf(COLOR_CYAN "0x%016lx" COLOR_RESET "\n", value);
                 }
         }
 
@@ -2011,8 +2295,8 @@ int DisplayFunctionNames(debuggee *dbgee) { // NOLINT
                         if ((sym.st_size > 0) ||
                             (should_warn && !strstr(sym_name, "@"))) {
                                 printf(COLOR_YELLOW "%-40s " COLOR_GREEN
-                                                    "0x%016lx" COLOR_RESET
-                                                    " %-10lu",
+                                                    "0x%016lx" COLOR_BLUE
+                                                    " %-10lu" COLOR_RESET,
                                        sym_name, abs_address, sym.st_size);
 
                                 if (should_warn) {
