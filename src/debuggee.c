@@ -1385,6 +1385,7 @@ int Registers(debuggee *dbgee) {
         unsigned long dr1;
         unsigned long dr2;
         unsigned long dr3;
+        unsigned long dr6;
         unsigned long dr7;
 
         if (ptrace(PTRACE_GETREGS, dbgee->pid, NULL, &regs) == -1) {
@@ -1405,6 +1406,9 @@ int Registers(debuggee *dbgee) {
                 return EXIT_FAILURE;
         }
         if (_read_debug_register(dbgee->pid, DR3_OFFSET, &dr3) != 0) {
+                return EXIT_FAILURE;
+        }
+        if (_read_debug_register(dbgee->pid, DR6_OFFSET, &dr6) != 0) {
                 return EXIT_FAILURE;
         }
         if (_read_debug_register(dbgee->pid, DR7_OFFSET, &dr7) != 0) {
@@ -1460,8 +1464,9 @@ int Registers(debuggee *dbgee) {
         printf("  " COLOR_GREEN "DR2:" COLOR_BLUE " 0x%016lx" COLOR_RESET
                "    " COLOR_GREEN "DR3:" COLOR_BLUE " 0x%016lx\n" COLOR_RESET,
                dr2, dr3);
-        printf("  " COLOR_GREEN "DR7:" COLOR_BLUE " 0x%016lx\n" COLOR_RESET,
-               dr7);
+        printf("  " COLOR_GREEN "DR6:" COLOR_BLUE " 0x%016lx" COLOR_RESET
+               "    " COLOR_GREEN "DR7:" COLOR_BLUE " 0x%016lx\n" COLOR_RESET,
+               dr6, dr7);
         print_separator();
 
         return EXIT_SUCCESS;
