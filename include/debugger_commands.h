@@ -6,6 +6,7 @@ typedef enum {
         CLI_HELP,
         CLI_EXIT,
         CLI_CLEAR,
+        CLI_LOG,
         DBG_RUN,
         DBG_CONTINUE,
         DBG_STEP,

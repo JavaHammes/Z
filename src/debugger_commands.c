@@ -15,6 +15,7 @@ static const command_mapping command_map[] = {
     {"help", CLI_HELP},
     {"exit", CLI_EXIT},
     {"clear", CLI_CLEAR},
+    {"log", CLI_LOG},
     {"run", DBG_RUN},
     {"con", DBG_CONTINUE},
     {"step", DBG_STEP},
@@ -102,6 +103,18 @@ int handle_user_input(debugger *dbg, command_t cmd_type, // NOLINT
 
         case CLI_CLEAR:
                 linenoiseClearScreen();
+                return PROMPT_USER_AGAIN;
+
+        case CLI_LOG:
+                if (arg == NULL) {
+                        printf(COLOR_YELLOW
+                               "Usage: log <filename>\n" COLOR_RESET);
+                        return PROMPT_USER_AGAIN;
+                }
+                if (Log(arg) != 0) {
+                        printf(COLOR_RED "Failed to log to '%s'.\n" COLOR_RESET,
+                               arg);
+                }
                 return PROMPT_USER_AGAIN;
 
         case DBG_RUN:
