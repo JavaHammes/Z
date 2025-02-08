@@ -953,6 +953,8 @@ void Help(void) {
                "  clear               - Clear the screen\n" COLOR_RESET);
         printf(COLOR_GREEN
                "  !!                  - Repeat last command\n" COLOR_RESET);
+        printf(COLOR_GREEN "  log <filename>      - Start logging output to "
+                           "<filename>\n" COLOR_RESET);
         print_separator();
 
         printf(COLOR_YELLOW "Execution Commands:\n" COLOR_RESET);
@@ -1040,6 +1042,31 @@ void Help(void) {
         printf(COLOR_GREEN "  patch <addr>=<hex>  - Patch memory at <addr> "
                            "with <hex> opcode bytes\n" COLOR_RESET);
         print_separator_large();
+}
+
+int Log(const char *filename) {
+        static bool log_called = false;
+
+        if (log_called) {
+                (void)(fprintf(stderr,
+                               COLOR_RED "Logging has already been started and "
+                                         "cannot be restarted.\n" COLOR_RESET));
+                return EXIT_FAILURE;
+        }
+
+        FILE *new_stdout = create_tee_stream(filename);
+        if (new_stdout == NULL) {
+                perror("create_tee_stream");
+                return EXIT_FAILURE;
+        }
+
+        stdout = new_stdout;
+        log_called = true;
+
+        printf(COLOR_GREEN
+               "Logging successfully started to file: %s\n" COLOR_RESET,
+               filename);
+        return EXIT_SUCCESS;
 }
 
 int Run(debuggee *dbgee) {

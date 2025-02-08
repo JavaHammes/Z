@@ -94,22 +94,7 @@ void init_debugger(debugger *dbg, const char *debuggee_name) {
 }
 
 void free_debugger(debugger *dbg) {
-        if (dbg->state == ATTACHED) {
-                if (ptrace(PTRACE_DETACH, dbg->dbgee.pid, NULL, NULL) == -1) {
-                        (void)(fprintf(stderr,
-                                       COLOR_RED
-                                       "Failed to detach from child with PID "
-                                       "%d: %s\n" COLOR_RESET,
-                                       dbg->dbgee.pid, strerror(errno)));
-                } else {
-                        printf(COLOR_CYAN
-                               "Detached from child with PID: %d\n" COLOR_RESET,
-                               dbg->dbgee.pid);
-                }
-        }
-
-        if (dbg->dbgee.state == RUNNING || dbg->dbgee.state == STOPPED ||
-            dbg->dbgee.state == SINGLE_STEPPING) {
+        if (dbg->dbgee.state != TERMINATED) {
                 if (kill(dbg->dbgee.pid, SIGKILL) == -1) {
                         (void)(fprintf(stderr,
                                        COLOR_RED "Failed to kill child with "
@@ -120,7 +105,7 @@ void free_debugger(debugger *dbg) {
                                "Killed child with PID: %d\n" COLOR_RESET,
                                dbg->dbgee.pid);
                 }
-        } else if (dbg->dbgee.state == TERMINATED) {
+        } else {
                 printf(
                     COLOR_YELLOW
                     "Child with PID %d has already terminated.\n" COLOR_RESET,

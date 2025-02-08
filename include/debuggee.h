@@ -29,6 +29,7 @@ typedef struct debuggee {
 } debuggee;
 
 void Help(void);
+int Log(const char *filename);
 
 int Run(debuggee *dbgee);
 int Continue(debuggee *dbgee);

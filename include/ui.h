@@ -13,18 +13,12 @@
 
 enum { LINE_LENGTH = 103 };
 
-static inline void print_separator(void) {
-        printf(COLOR_MAGENTA);
-        for (int i = 0; i < LINE_LENGTH; i++) {
-                putchar('-');
-        }
-        printf("\n" COLOR_RESET);
-}
+typedef struct {
+        FILE *orig;
+        FILE *logfile;
+} tee_cookie;
 
-static inline void print_separator_large(void) {
-        printf(COLOR_MAGENTA);
-        for (int i = 0; i < LINE_LENGTH; i++) {
-                putchar('=');
-        }
-        printf("\n" COLOR_RESET);
-}
+void print_separator(void);
+void print_separator_large(void);
+
+FILE *create_tee_stream(const char *log_filename);
