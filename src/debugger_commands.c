@@ -37,6 +37,8 @@ static const command_mapping command_map[] = {
     {"dis", DBG_DIS},
     {"vars", DBG_GLOB_VARS},
     {"funcs", DBG_FUNC_NAMES},
+    {"backt", DBG_BACKTRACE},
+    {"addr", DBG_ADDR},
 };
 
 enum {
@@ -328,6 +330,26 @@ int handle_user_input(debugger *dbg, command_t cmd_type, // NOLINT
                             COLOR_RED
                             "Failed to display function names.\n" COLOR_RESET);
                 }
+                return PROMPT_USER_AGAIN;
+
+        case DBG_BACKTRACE:
+                if (Backtrace(&dbg->dbgee) != 0) {
+                        printf(COLOR_RED
+                               "Failed to display backtrace.\n" COLOR_RESET);
+                }
+                return PROMPT_USER_AGAIN;
+
+        case DBG_ADDR:
+                if (arg == NULL) {
+                        printf(COLOR_YELLOW
+                               "Usage: addr <func_name>\n" COLOR_RESET);
+                        return PROMPT_USER_AGAIN;
+                }
+                if (Address(&dbg->dbgee, arg) != 0) {
+                        printf(COLOR_RED "Failed to get address for func: "
+                                         "<%s>.\n" COLOR_RESET,
+                               arg);
+                };
                 return PROMPT_USER_AGAIN;
 
         case UNKNOWN:

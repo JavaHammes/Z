@@ -28,6 +28,8 @@ typedef enum {
         DBG_DIS,
         DBG_GLOB_VARS,
         DBG_FUNC_NAMES,
+        DBG_BACKTRACE,
+        DBG_ADDR,
         UNKNOWN
 } command_t;
 
