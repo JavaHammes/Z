@@ -14,8 +14,9 @@
 int debug_count = 0;
 
 static const char *blacklist[] = {
-    "libfopen_intercept.so", "libprctl_intercept.so", "libgetenv_intercept.so",
-    "libptrace_intercept.so", NULL};
+    "libfopen_intercept.so",    "libprctl_intercept.so",
+    "libgetenv_intercept.so",   "libptrace_intercept.so",
+    "libsetvbuf_unbuffered.so", NULL};
 
 bool sigtrap_intercepted = false;
 
@@ -155,8 +156,6 @@ void increment_counter(void) {
 }
 
 int main(void) {
-        (void)(setvbuf(stdout, NULL, _IONBF, 0));
-
         init_anti_debug();
         check_for_debugging();
 

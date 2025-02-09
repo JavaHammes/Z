@@ -74,7 +74,7 @@ static inline unsigned long DR7_LEN_SHIFT(int bpno) {
         return (DR7_LEN_BASE_SHIFT + bpno * 4);
 }
 
-static bool should_remove_breakpoints(const debuggee *dbgee) {
+static bool _should_remove_breakpoints(const debuggee *dbgee) {
         printf(COLOR_YELLOW "There are %zu breakpoints set. Do you want to "
                             "remove all breakpoints and run until termination? "
                             "(y/N): " COLOR_RESET,
@@ -1103,7 +1103,7 @@ int Run(debuggee *dbgee) {
 
         if (dbgee->has_run) {
                 if (dbgee->bp_handler->count > 0) {
-                        if (should_remove_breakpoints(dbgee)) {
+                        if (_should_remove_breakpoints(dbgee)) {
                                 if (_remove_all_breakpoints(dbgee) !=
                                     EXIT_SUCCESS) {
                                         return EXIT_FAILURE;

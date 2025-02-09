@@ -87,8 +87,11 @@ void init_debugger(debugger *dbg, const char *debuggee_name) {
         dbg->dbgee.state = IDLE;
         dbg->dbgee.has_run = false;
 
-        // Could be NULL. TODO: Catch this.
         dbg->dbgee.bp_handler = init_breakpoint_handler();
+        if (dbg->dbgee.bp_handler == NULL) {
+                (void)(fprintf(stderr, COLOR_RED "Failed to initialize breakpoint handler.\n" COLOR_RESET));
+                exit(EXIT_FAILURE);
+        }
 
         dbg->state = DETACHED;
 }
@@ -128,7 +131,8 @@ int start_debuggee(debugger *dbg) {
         if (pid == 0) {
                 const char *libs[] = {
                     "libptrace_intercept.so", "libfopen_intercept.so",
-                    "libgetenv_intercept.so", "libprctl_intercept.so"};
+                    "libgetenv_intercept.so", "libprctl_intercept.so",
+                    "libsetvbuf_unbuffered.so"};
                 size_t lib_count = sizeof(libs) / sizeof(libs[0]);
 
                 if (set_ld_preload(libs, lib_count) != 0) {
@@ -321,8 +325,7 @@ int trace_debuggee(debugger *dbg) { // NOLINT
                                 // it back to the debuggee to counter
                                 // anti-debugging techniques.
                                 if (sig == SIGTRAP) {
-                                        printf(COLOR_CYAN
-                                               "[INFO] Sending SIGTRAP back to "
+                                        printf("[INFO] Sending SIGTRAP back to "
                                                "debuggee.\n" COLOR_RESET);
                                         if (ptrace(PTRACE_CONT, dbg->dbgee.pid,
                                                    NULL, SIGTRAP) == -1) {

@@ -4,4 +4,4 @@
 
 static const char *SO_FILES[] = {
     "libfopen_intercept.so", "libprctl_intercept.so", "libptrace_intercept.so",
-    "libgetenv_intercept.so", NULL};
+    "libgetenv_intercept.so", "libsetvbuf_unbuffered.so", NULL};

@@ -109,6 +109,15 @@ add_override_library(fopen fopen_override)
 add_override_library(prctl prctl_override)
 add_override_library(getenv getenv_override)
 
+add_library(setvbuf_unbuffered SHARED ${LIB_DIR}/setvbuf_unbuffered.c)
+set_target_properties(setvbuf_unbuffered PROPERTIES
+    OUTPUT_NAME "setvbuf_unbuffered"
+    LIBRARY_OUTPUT_DIRECTORY ${BIN_DIR}
+    RUNTIME_OUTPUT_DIRECTORY ${BIN_DIR}
+    POSITION_INDEPENDENT_CODE ON
+)
+target_link_libraries(setvbuf_unbuffered PRIVATE dl)
+
 set_target_properties(mock_target PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${BIN_DIR})
 
 find_program(LINTER clang-tidy-18)
