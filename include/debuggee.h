@@ -47,6 +47,8 @@ int Patch(debuggee *dbgee, const char *arg);
 int Disassemble(debuggee *dbgee);
 int DisplayGlobalVariables(debuggee *dbgee);
 int DisplayFunctionNames(debuggee *dbgee);
+int Backtrace(debuggee *dbgee);
+int Address(debuggee *dbgee, const char *arg);
 
 int SetSoftwareBreakpoint(debuggee *dbgee, const char *arg);
 int SetHardwareBreakpoint(debuggee *dbgee, const char *arg);
