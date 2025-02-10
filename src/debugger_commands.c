@@ -139,7 +139,7 @@ int handle_user_input(debugger *dbg, command_t cmd_type, // NOLINT
                         printf(COLOR_RED
                                "Failed to single step.\n" COLOR_RESET);
                 }
-                return PROMPT_USER_AGAIN;
+                return DONT_PROMPT_USER_AGAIN;
 
         case DBG_STEP_OVER:
                 if (StepOver(&dbg->dbgee) != 0) {

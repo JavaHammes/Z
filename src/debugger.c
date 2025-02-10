@@ -89,7 +89,9 @@ void init_debugger(debugger *dbg, const char *debuggee_name) {
 
         dbg->dbgee.bp_handler = init_breakpoint_handler();
         if (dbg->dbgee.bp_handler == NULL) {
-                (void)(fprintf(stderr, COLOR_RED "Failed to initialize breakpoint handler.\n" COLOR_RESET));
+                (void)(fprintf(
+                    stderr, COLOR_RED
+                    "Failed to initialize breakpoint handler.\n" COLOR_RESET));
                 exit(EXIT_FAILURE);
         }
 
@@ -125,7 +127,7 @@ int start_debuggee(debugger *dbg) {
         pid_t pid = fork();
         if (pid == -1) {
                 perror("fork");
-                return -1;
+                return EXIT_FAILURE;
         }
 
         if (pid == 0) {
@@ -211,10 +213,11 @@ int trace_debuggee(debugger *dbg) { // NOLINT
                 }
 
                 if (WIFSTOPPED(status)) {
+                        dbg->dbgee.state = STOPPED;
+
                         int sig = WSTOPSIG(status);
                         unsigned long event =
                             (status >> PTRACE_EVENT_SHIFT) & PTRACE_EVENT_MASK;
-                        dbg->dbgee.state = STOPPED;
 
                         if (entry_startup_breakpoint_set == false) {
                                 unsigned long entry_address =
@@ -317,36 +320,44 @@ int trace_debuggee(debugger *dbg) { // NOLINT
                                 }
                         }
 
-                        if (!breakpoint_handled &&
-                            dbg->dbgee.state != SINGLE_STEPPING) {
+                        siginfo_t info; // NOLINT(misc-include-cleaner)
+                        if (ptrace(PTRACE_GETSIGINFO, dbg->dbgee.pid, 0,
+                                   &info) == -1) {
+                                perror("ptrace(PTRACE_GETSIGINFO)");
+                                return EXIT_FAILURE;
+                        }
 
-                                // If we receive a SIGTRAP that is neither from
-                                // a breakpoint nor a single-step event, forward
-                                // it back to the debuggee to counter
-                                // anti-debugging techniques.
-                                if (sig == SIGTRAP) {
-                                        printf("[INFO] Sending SIGTRAP back to "
-                                               "debuggee.\n" COLOR_RESET);
-                                        if (ptrace(PTRACE_CONT, dbg->dbgee.pid,
-                                                   NULL, SIGTRAP) == -1) {
-                                                perror("ptrace CONT to send "
-                                                       "SIGTRAP");
-                                                return EXIT_FAILURE;
+                        bool single_stepping =
+                            info.si_code == 2 /* TRAP_TRACE */;
+                        if (!single_stepping) {
+                                if (!breakpoint_handled) {
+                                        if (sig == SIGTRAP) {
+                                                printf(
+                                                    COLOR_CYAN
+                                                    "[INFO] Sending SIGTRAP "
+                                                    "back to "
+                                                    "debuggee.\n" COLOR_RESET);
+                                                (void)(fflush(stdout));
+                                                if (ptrace(PTRACE_CONT,
+                                                           dbg->dbgee.pid, NULL,
+                                                           SIGTRAP) == -1) {
+                                                        perror("ptrace CONT to "
+                                                               "send "
+                                                               "SIGTRAP");
+                                                        return EXIT_FAILURE;
+                                                }
+                                                dbg->dbgee.state = RUNNING;
+                                                continue;
                                         }
-                                        dbg->dbgee.state = RUNNING;
-                                        continue;
+                                        printf(
+                                            COLOR_YELLOW
+                                            "Ignoring signal %d.\n" COLOR_RESET,
+                                            sig);
                                 }
-
-                                printf(COLOR_YELLOW
-                                       "Ignoring signal %d.\n" COLOR_RESET,
-                                       sig);
-                                if (ptrace(PTRACE_CONT, dbg->dbgee.pid, NULL,
-                                           NULL) == -1) {
-                                        perror("ptrace CONT to ignore signal");
-                                        return EXIT_FAILURE;
-                                }
-                                dbg->dbgee.state = RUNNING;
-                                continue;
+                        } else {
+                                printf(
+                                    COLOR_GREEN
+                                    "Stepped one instruction.\n" COLOR_RESET);
                         }
 
                         if (read_and_handle_user_command(dbg) != EXIT_SUCCESS) {
