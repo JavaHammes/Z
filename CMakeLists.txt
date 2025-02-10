@@ -43,6 +43,7 @@ add_library(z_lib STATIC
     ${SRC_DIR}/breakpoint_handler.c
     ${SRC_DIR}/symtab.c
     ${SRC_DIR}/ui.c
+    ${SRC_DIR}/ld_preload.c
 )
 
 target_include_directories(z_lib PUBLIC

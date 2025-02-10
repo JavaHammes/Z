@@ -14,6 +14,7 @@
 #include "debuggee.h"
 #include "debugger.h"
 #include "debugger_commands.h"
+#include "ld_preload.h"
 #include "ui.h"
 
 static const char *_ptrace_event_name(unsigned long event) {
@@ -35,71 +36,6 @@ static const char *_ptrace_event_name(unsigned long event) {
         }
 }
 
-static int _set_ld_preload(const char *libs[], size_t count) {
-        if (count == 0) {
-                (void)(fprintf(
-                    stderr, COLOR_RED
-                    "No libraries provided to set_ld_preload.\n" COLOR_RESET));
-                return -1;
-        }
-
-        char exe_path[PATH_MAX];
-        ssize_t len =
-            readlink("/proc/self/exe", exe_path, sizeof(exe_path) - 1);
-        if (len == -1) {
-                perror("readlink");
-                return -1;
-        }
-        exe_path[len] = '\0';
-
-        char *dir = dirname(exe_path);
-        if (dir == NULL) {
-                perror("dirname");
-                return -1;
-        }
-
-        char ld_preload_value[PATH_MAX * count];
-        ld_preload_value[0] = '\0';
-
-        for (size_t i = 0; i < count; ++i) {
-                char preload_path[PATH_MAX];
-                if ((unsigned long)(snprintf(preload_path, sizeof(preload_path),
-                                             "%s/%s", dir, libs[i])) >=
-                    sizeof(preload_path)) {
-                        (void)(fprintf(stderr,
-                                       COLOR_RED
-                                       "Path too long for %s\n" COLOR_RESET,
-                                       libs[i]));
-                        return -1;
-                }
-
-                if (access(preload_path, R_OK) == -1) {
-                        (void)(fprintf(
-                            stderr,
-                            COLOR_RED
-                            "Shared library not found at: %s\n" COLOR_RESET,
-                            preload_path));
-                        return -1;
-                }
-
-                if (i > 0) {
-                        strncat(ld_preload_value, ":",
-                                sizeof(ld_preload_value) -
-                                    strlen(ld_preload_value) - 1);
-                }
-                strncat(ld_preload_value, preload_path,
-                        sizeof(ld_preload_value) - strlen(ld_preload_value) -
-                            1);
-        }
-
-        if (setenv("LD_PRELOAD", ld_preload_value, 1) == -1) {
-                perror("setenv");
-                return -1;
-        }
-
-        return 0;
-}
-
 void init_debugger(debugger *dbg, const char *debuggee_name) {
         dbg->dbgee.pid = -1;
         dbg->dbgee.name = debuggee_name;
@@ -114,6 +50,15 @@ void init_debugger(debugger *dbg, const char *debuggee_name) {
                 exit(EXIT_FAILURE);
         }
 
+        dbg->preload_list = ld_preload_list_init();
+        if (dbg->preload_list == NULL) {
+                (void)(fprintf(stderr,
+                               COLOR_RED "Failed to initialize preload library "
+                                         "list.\n" COLOR_RESET));
+                free_breakpoint_handler(dbg->dbgee.bp_handler);
+                exit(EXIT_FAILURE);
+        }
+
         dbg->state = DETACHED;
 }
 
@@ -121,8 +66,9 @@ void free_debugger(debugger *dbg) {
         if (dbg->dbgee.state != TERMINATED) {
                 if (kill(dbg->dbgee.pid, SIGKILL) == -1) {
                         (void)(fprintf(stderr,
-                                       COLOR_RED "Failed to kill child with "
-                                                 "PID %d: %s\n" COLOR_RESET,
+                                       COLOR_RED
+                                       "Failed to kill child with PID %d: "
+                                       "%s\n" COLOR_RESET,
                                        dbg->dbgee.pid, strerror(errno)));
                 } else {
                         printf(COLOR_CYAN
@@ -138,7 +84,14 @@ void free_debugger(debugger *dbg) {
 
         dbg->dbgee.pid = -1;
         dbg->dbgee.state = TERMINATED;
-        free_breakpoint_handler(dbg->dbgee.bp_handler);
+        if (dbg->dbgee.bp_handler) {
+                free_breakpoint_handler(dbg->dbgee.bp_handler);
+                dbg->dbgee.bp_handler = NULL;
+        }
+        if (dbg->preload_list) {
+                ld_preload_list_free(dbg->preload_list);
+                dbg->preload_list = NULL;
+        }
         dbg->state = DETACHED;
 }
 
@@ -150,16 +103,58 @@ int start_debuggee(debugger *dbg) {
         }
 
         if (pid == 0) {
-                const char *libs[] = {
-                    "libptrace_intercept.so", "libfopen_intercept.so",
-                    "libgetenv_intercept.so", "libprctl_intercept.so",
-                    "libsetvbuf_unbuffered.so"};
-                size_t lib_count = sizeof(libs) / sizeof(libs[0]);
+                char exe_path[PATH_MAX];
+                ssize_t len =
+                    readlink("/proc/self/exe", exe_path, sizeof(exe_path) - 1);
+                if (len == -1) {
+                        perror("readlink");
+                        exit(EXIT_FAILURE);
+                }
+                exe_path[len] = '\0';
 
-                if (_set_ld_preload(libs, lib_count) != 0) {
-                        (void)(fprintf(
-                            stderr, COLOR_RED
-                            "Failed to set LD_PRELOAD.\n" COLOR_RESET));
+                char *dir = dirname(exe_path);
+                if (dir == NULL) {
+                        perror("dirname");
+                        exit(EXIT_FAILURE);
+                }
+
+
+                if (dbg->preload_list->count == 0) {
+                        const char *default_libs[] = {
+                            "libptrace_intercept.so", "libfopen_intercept.so",
+                            "libgetenv_intercept.so", "libprctl_intercept.so",
+                            "libsetvbuf_unbuffered.so"};
+                        size_t lib_count =
+                            sizeof(default_libs) / sizeof(default_libs[0]);
+
+                        for (size_t i = 0; i < lib_count; ++i) {
+                                char preload_path[PATH_MAX];
+                                if ((unsigned long)snprintf(
+                                        preload_path, sizeof(preload_path), "%s/%s",
+                                        dir, default_libs[i]) >= sizeof(preload_path)) {
+                                        (void)(fprintf(
+                                            stderr,
+                                            COLOR_RED
+                                            "Path too long for %s\n" COLOR_RESET,
+                                            default_libs[i]));
+                                        exit(EXIT_FAILURE);
+                                }
+                                if (ld_preload_list_add(dbg->preload_list,
+                                                        preload_path) != 0) {
+                                        (void)(fprintf(
+                                            stderr,
+                                            COLOR_RED
+                                            "Failed to add library %s\n" COLOR_RESET,
+                                            preload_path));
+                                        exit(EXIT_FAILURE);
+                                }
+                        }
+                }
+
+                if (ld_preload_list_set_env(dbg->preload_list, NULL) != 0) {
+                        (void)(fprintf(stderr, COLOR_RED
+                                       "Failed to set LD_PRELOAD environment "
+                                       "variable.\n" COLOR_RESET));
                         exit(EXIT_FAILURE);
                 }
 
@@ -366,8 +361,7 @@ int trace_debuggee(debugger *dbg) { // NOLINT
                                                            dbg->dbgee.pid, NULL,
                                                            SIGTRAP) == -1) {
                                                         perror("ptrace CONT to "
-                                                               "send "
-                                                               "SIGTRAP");
+                                                               "send SIGTRAP");
                                                         return EXIT_FAILURE;
                                                 }
                                                 dbg->dbgee.state = RUNNING;

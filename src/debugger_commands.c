@@ -38,6 +38,7 @@ static const command_mapping command_map[] = {
     {"vars", DBG_GLOB_VARS},
     {"funcs", DBG_FUNC_NAMES},
     {"backt", DBG_BACKTRACE},
+    {"preload", DBG_LIST_PRELOAD},
     {"addr", DBG_ADDR},
 };
 
@@ -350,6 +351,10 @@ int handle_user_input(debugger *dbg, command_t cmd_type, // NOLINT
                                          "<%s>.\n" COLOR_RESET,
                                arg);
                 };
+                return PROMPT_USER_AGAIN;
+
+        case DBG_LIST_PRELOAD:
+                ld_preload_list_print(dbg->preload_list);
                 return PROMPT_USER_AGAIN;
 
         case UNKNOWN:

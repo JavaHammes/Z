@@ -30,6 +30,7 @@ typedef enum {
         DBG_FUNC_NAMES,
         DBG_BACKTRACE,
         DBG_ADDR,
+        DBG_LIST_PRELOAD,
         UNKNOWN
 } command_t;
 
