@@ -24,7 +24,7 @@ static void _alloc_new_capacity(ld_preload_list *list) {
         list->capacity = new_capacity;
 }
 
-ld_preload_list *ld_preload_list_init(void) {
+ld_preload_list *init_ld_preload_list(void) {
         ld_preload_list *list = malloc(sizeof(ld_preload_list));
         if (!list) {
                 (void)(fprintf(
@@ -41,7 +41,7 @@ ld_preload_list *ld_preload_list_init(void) {
         return list;
 }
 
-void ld_preload_list_free(ld_preload_list *list) {
+void free_ld_preload_list(ld_preload_list *list) {
         if (!list) {
                 return;
         }
@@ -54,15 +54,24 @@ void ld_preload_list_free(ld_preload_list *list) {
         free(list);
 }
 
-int ld_preload_list_add(ld_preload_list *list, const char *lib) {
+int add_library(ld_preload_list *list, const char *lib) {
         if (list->count == list->capacity) {
                 _alloc_new_capacity(list);
         }
 
         for (size_t i = 0; i < list->count; i++) {
                 if (strcmp(list->libs[i], lib) == 0) {
-                        return EXIT_SUCCESS;
+                        return EXIT_FAILURE;
                 }
+        }
+
+        if (access(lib, F_OK | R_OK) != 0) {
+                (void)(fprintf(stderr,
+                               COLOR_RED
+                               "Cannot find preload library: "
+                               "%s\n" COLOR_RESET,
+                               lib));
+                return EXIT_FAILURE;
         }
 
         list->libs[list->count] = strdup(lib);
@@ -116,7 +125,8 @@ char *ld_preload_list_get_env(const ld_preload_list *list, const char *dir) {
         char *env_str = malloc(total_length);
         if (!env_str) {
                 (void)(fprintf(stderr,
-                               "Failed to allocate LD_PRELOAD env string: %s\n",
+                               COLOR_RED "Failed to allocate LD_PRELOAD env "
+                                         "string: %s\n" COLOR_RESET,
                                strerror(errno)));
                 return NULL;
         }
@@ -135,13 +145,14 @@ char *ld_preload_list_get_env(const ld_preload_list *list, const char *dir) {
         return env_str;
 }
 
-void ld_preload_list_print(const ld_preload_list *list) {
+void print_libraries(const ld_preload_list *list) {
         if (!list) {
                 return;
         }
 
-        printf("LD_PRELOAD libraries (%zu):\n", list->count);
+        printf(COLOR_CYAN "LD_PRELOAD libraries (%zu):\n", list->count);
         for (size_t i = 0; i < list->count; i++) {
-                printf("  %s\n", list->libs[i]);
+                printf(COLOR_GREEN "  %s\n" COLOR_RESET, list->libs[i]);
         }
+        printf(COLOR_RESET);
 }

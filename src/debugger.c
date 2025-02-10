@@ -36,7 +36,47 @@ static const char *_ptrace_event_name(unsigned long event) {
         }
 }
 
-void init_debugger(debugger *dbg, const char *debuggee_name) {
+static void _add_default_preload_libraries(debugger *dbg) {
+        const char *default_libs[] = {
+            "bin/libptrace_intercept.so", "bin/libfopen_intercept.so",
+            "bin/libgetenv_intercept.so", "bin/libprctl_intercept.so",
+            "bin/libsetvbuf_unbuffered.so"};
+        size_t lib_count = sizeof(default_libs) / sizeof(default_libs[0]);
+
+        for (size_t i = 0; i < lib_count; ++i) {
+                const char *lib_path = default_libs[i];
+                if (add_library(dbg->preload_list, lib_path) != 0) {
+                        (void)(fprintf(stderr,
+                                       COLOR_RED
+                                       "Failed to add library %s\n" COLOR_RESET,
+                                       lib_path));
+                }
+        }
+}
+
+static void _process_ld_preload_args(debugger *dbg, int argc, char **argv) {
+        if (argc > 2) {
+                for (int i = 2; i < argc; i++) {
+                        const char *lib_path = argv[i];
+
+                        if (add_library(dbg->preload_list, lib_path) !=
+                            EXIT_SUCCESS) {
+                                (void)(fprintf(stderr,
+                                               COLOR_RED
+                                               "Failed to add preload library: "
+                                               "%s\n" COLOR_RESET,
+                                               lib_path));
+                        }
+                }
+        }
+
+        if (dbg->preload_list->count == 0) {
+                _add_default_preload_libraries(dbg);
+        }
+}
+
+void init_debugger(debugger *dbg, const char *debuggee_name, int argc,
+                   char **argv) {
         dbg->dbgee.pid = -1;
         dbg->dbgee.name = debuggee_name;
         dbg->dbgee.state = IDLE;
@@ -50,7 +90,7 @@ void init_debugger(debugger *dbg, const char *debuggee_name) {
                 exit(EXIT_FAILURE);
         }
 
-        dbg->preload_list = ld_preload_list_init();
+        dbg->preload_list = init_ld_preload_list();
         if (dbg->preload_list == NULL) {
                 (void)(fprintf(stderr,
                                COLOR_RED "Failed to initialize preload library "
@@ -59,6 +99,7 @@ void init_debugger(debugger *dbg, const char *debuggee_name) {
                 exit(EXIT_FAILURE);
         }
 
+        _process_ld_preload_args(dbg, argc, argv);
         dbg->state = DETACHED;
 }
 
@@ -89,7 +130,7 @@ void free_debugger(debugger *dbg) {
                 dbg->dbgee.bp_handler = NULL;
         }
         if (dbg->preload_list) {
-                ld_preload_list_free(dbg->preload_list);
+                free_ld_preload_list(dbg->preload_list);
                 dbg->preload_list = NULL;
         }
         dbg->state = DETACHED;
@@ -103,55 +144,7 @@ int start_debuggee(debugger *dbg) {
         }
 
         if (pid == 0) {
-                char exe_path[PATH_MAX];
-                ssize_t len =
-                    readlink("/proc/self/exe", exe_path, sizeof(exe_path) - 1);
-                if (len == -1) {
-                        perror("readlink");
-                        exit(EXIT_FAILURE);
-                }
-                exe_path[len] = '\0';
-
-                char *dir = dirname(exe_path);
-                if (dir == NULL) {
-                        perror("dirname");
-                        exit(EXIT_FAILURE);
-                }
-
-                if (dbg->preload_list->count == 0) {
-                        const char *default_libs[] = {
-                            "libptrace_intercept.so", "libfopen_intercept.so",
-                            "libgetenv_intercept.so", "libprctl_intercept.so",
-                            "libsetvbuf_unbuffered.so"};
-                        size_t lib_count =
-                            sizeof(default_libs) / sizeof(default_libs[0]);
-
-                        for (size_t i = 0; i < lib_count; ++i) {
-                                char preload_path[PATH_MAX];
-                                if ((unsigned long)snprintf(
-                                        preload_path, sizeof(preload_path),
-                                        "%s/%s", dir, default_libs[i]) >=
-                                    sizeof(preload_path)) {
-                                        (void)(fprintf(stderr,
-                                                       COLOR_RED
-                                                       "Path too long for "
-                                                       "%s\n" COLOR_RESET,
-                                                       default_libs[i]));
-                                        exit(EXIT_FAILURE);
-                                }
-                                if (ld_preload_list_add(dbg->preload_list,
-                                                        preload_path) != 0) {
-                                        (void)(fprintf(stderr,
-                                                       COLOR_RED
-                                                       "Failed to add library "
-                                                       "%s\n" COLOR_RESET,
-                                                       preload_path));
-                                        exit(EXIT_FAILURE);
-                                }
-                        }
-                }
-
-                if (ld_preload_list_set_env(dbg->preload_list, NULL) != 0) {
+                  if (ld_preload_list_set_env(dbg->preload_list, NULL) != 0) {
                         (void)(fprintf(stderr, COLOR_RED
                                        "Failed to set LD_PRELOAD environment "
                                        "variable.\n" COLOR_RESET));

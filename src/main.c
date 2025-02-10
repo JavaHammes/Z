@@ -15,31 +15,6 @@ static bool _file_exists(const char *filename) {
         return access(filename, F_OK | R_OK) == 0;
 }
 
-static void _process_ld_preload_args(debugger *dbg, int argc, char **argv) {
-        if (argc > 2) {
-                for (int i = 2; i < argc; i++) {
-                        const char *lib_path = argv[i];
-
-                        if (!_file_exists(lib_path)) {
-                                (void)(fprintf(stderr,
-                                               COLOR_RED
-                                               "Cannot find preload library: "
-                                               "%s\n" COLOR_RESET,
-                                               lib_path));
-                        }
-
-                        if (ld_preload_list_add(dbg->preload_list, lib_path) !=
-                            EXIT_SUCCESS) {
-                                (void)(fprintf(stderr,
-                                               COLOR_RED
-                                               "Failed to add preload library: "
-                                               "%s\n" COLOR_RESET,
-                                               lib_path));
-                        }
-                }
-        }
-}
-
 int main(int argc, char **argv) {
         if (argc < 2) {
                 (void)(fprintf(stderr,
@@ -70,8 +45,7 @@ int main(int argc, char **argv) {
         }
 
         debugger dbg;
-        init_debugger(&dbg, debuggee_name);
-        _process_ld_preload_args(&dbg, argc, argv);
+        init_debugger(&dbg, debuggee_name, argc, argv);
 
         if (start_debuggee(&dbg) != 0) {
                 (void)(fprintf(stderr, COLOR_RED

@@ -354,7 +354,7 @@ int handle_user_input(debugger *dbg, command_t cmd_type, // NOLINT
                 return PROMPT_USER_AGAIN;
 
         case DBG_LIST_PRELOAD:
-                ld_preload_list_print(dbg->preload_list);
+                print_libraries(dbg->preload_list);
                 return PROMPT_USER_AGAIN;
 
         case UNKNOWN:

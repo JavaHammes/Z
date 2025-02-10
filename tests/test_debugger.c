@@ -19,7 +19,7 @@ void redirect_all_stdout(void) {
 
 Test(debugger, init_debugger_success) {
         debugger dbg;
-        init_debugger(&dbg, MOCK_DEBUGGEE_PATH);
+        init_debugger(&dbg, MOCK_DEBUGGEE_PATH, 1, NULL);
 
         cr_assert_eq(dbg.dbgee.pid, -1);
         cr_assert_eq(dbg.dbgee.name, "../bin/mock_target");
@@ -29,7 +29,7 @@ Test(debugger, init_debugger_success) {
 
 Test(debugger, start_debuggee_success) {
         debugger dbg;
-        init_debugger(&dbg, MOCK_DEBUGGEE_PATH);
+        init_debugger(&dbg, MOCK_DEBUGGEE_PATH, 0, NULL);
 
         int result = start_debuggee(&dbg);
         cr_assert_eq(result, 0, "start_debuggee failed with return value %d",
@@ -45,7 +45,7 @@ Test(debugger, start_debuggee_success) {
 Test(debugger, free_debugger_kill_running_debuggee,
      .init = redirect_all_stdout) {
         debugger dbg;
-        init_debugger(&dbg, MOCK_DEBUGGEE_PATH);
+        init_debugger(&dbg, MOCK_DEBUGGEE_PATH, 0, NULL);
 
         int start_result = start_debuggee(&dbg);
         cr_assert_eq(start_result, 0,

@@ -11,7 +11,8 @@ typedef struct debugger {
         ld_preload_list *preload_list;
 } debugger;
 
-void init_debugger(debugger *dbg, const char *debuggee_name);
+void init_debugger(debugger *dbg, const char *debuggee_name, int argc,
+                   char **argv);
 void free_debugger(debugger *dbg);
 
 int start_debuggee(debugger *dbg);
