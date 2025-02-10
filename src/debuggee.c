@@ -2590,7 +2590,7 @@ unsigned long get_entry_absolute_address(debuggee *dbgee) {
                 entry_point += base_address;
         }
 
-        printf(COLOR_GREEN "Program entry point: 0x%lx\n" COLOR_RESET,
+        printf(COLOR_CYAN "Program entry point: 0x%lx\n" COLOR_RESET,
                entry_point);
         return entry_point;
 }

@@ -36,22 +36,48 @@ static const char *_ptrace_event_name(unsigned long event) {
         }
 }
 
-static void _add_default_preload_libraries(debugger *dbg) {
+static int _add_default_preload_libraries(debugger *dbg) {
+        char exe_path[PATH_MAX];
+        ssize_t len =
+            readlink("/proc/self/exe", exe_path, sizeof(exe_path) - 1);
+        if (len == -1) {
+                perror("readlink");
+                return EXIT_FAILURE;
+        }
+        exe_path[len] = '\0';
+
+        char *dir = dirname(exe_path);
+        if (!dir) {
+                perror("dirname");
+                return EXIT_FAILURE;
+        }
+
         const char *default_libs[] = {
-            "bin/libptrace_intercept.so", "bin/libfopen_intercept.so",
-            "bin/libgetenv_intercept.so", "bin/libprctl_intercept.so",
-            "bin/libsetvbuf_unbuffered.so"};
+            "libptrace_intercept.so", "libfopen_intercept.so",
+            "libgetenv_intercept.so", "libprctl_intercept.so",
+            "libsetvbuf_unbuffered.so"};
         size_t lib_count = sizeof(default_libs) / sizeof(default_libs[0]);
 
         for (size_t i = 0; i < lib_count; ++i) {
-                const char *lib_path = default_libs[i];
-                if (add_library(dbg->preload_list, lib_path) != 0) {
+                char full_path[PATH_MAX];
+                if ((unsigned long)snprintf(full_path, sizeof(full_path),
+                                            "%s/%s", dir, default_libs[i]) >=
+                    sizeof(full_path)) {
+                        (void)(fprintf(stderr,
+                                       COLOR_RED
+                                       "Path too long for %s\n" COLOR_RESET,
+                                       default_libs[i]));
+                        return EXIT_FAILURE;
+                }
+                if (add_library(dbg->preload_list, full_path) != 0) {
                         (void)(fprintf(stderr,
                                        COLOR_RED
                                        "Failed to add library %s\n" COLOR_RESET,
-                                       lib_path));
+                                       full_path));
+                        return EXIT_FAILURE;
                 }
         }
+        return EXIT_SUCCESS;
 }
 
 static void _process_ld_preload_args(debugger *dbg, int argc, char **argv) {
@@ -73,6 +99,8 @@ static void _process_ld_preload_args(debugger *dbg, int argc, char **argv) {
         if (dbg->preload_list->count == 0) {
                 _add_default_preload_libraries(dbg);
         }
+
+        printf(COLOR_CYAN "Preloaded (%zu) libraries.\n" COLOR_RESET, dbg->preload_list->count);
 }
 
 void init_debugger(debugger *dbg, const char *debuggee_name, int argc,
@@ -144,7 +172,7 @@ int start_debuggee(debugger *dbg) {
         }
 
         if (pid == 0) {
-                  if (ld_preload_list_set_env(dbg->preload_list, NULL) != 0) {
+                if (ld_preload_list_set_env(dbg->preload_list, NULL) != 0) {
                         (void)(fprintf(stderr, COLOR_RED
                                        "Failed to set LD_PRELOAD environment "
                                        "variable.\n" COLOR_RESET));
