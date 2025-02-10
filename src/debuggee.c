@@ -1416,6 +1416,7 @@ int Jump(debuggee *dbgee, const char *arg) { // NOLINT
                         if (!handled_by_debugger && sig == SIGTRAP) {
                                 printf(COLOR_CYAN "[INFO] Forwarding SIGTRAP "
                                                   "to debuggee.\n" COLOR_RESET);
+                                (void)(fflush(stdout));
                                 if (ptrace(PTRACE_CONT, dbgee->pid, NULL,
                                            SIGTRAP) == -1) {
                                         perror("ptrace CONT to send SIGTRAP");
@@ -1441,6 +1442,8 @@ int Trace(debuggee *dbgee, const char *arg) { // NOLINT
                 return EXIT_FAILURE;
         }
 
+        print_separator();
+
         while (true) {
                 if (_step_and_wait(dbgee) != EXIT_SUCCESS) {
                         (void)(fprintf(stderr, COLOR_RED
@@ -1465,6 +1468,19 @@ int Trace(debuggee *dbgee, const char *arg) { // NOLINT
                         return EXIT_FAILURE;
                 }
 
+                char module_name[MODULE_NAME_SIZE] = {0};
+                unsigned long base_address = _get_module_base_address(
+                    dbgee->pid, rip, module_name, sizeof(module_name));
+                if (base_address == 0) {
+                        (void)(fprintf(stderr,
+                                       COLOR_RED
+                                       "Failed to retrieve base address for "
+                                       "0x%lx.\n" COLOR_RESET,
+                                       rip));
+                        return EXIT_FAILURE;
+                }
+                unsigned long offset = rip - base_address;
+
                 csh handle;
                 cs_insn *insn;
                 size_t count;
@@ -1478,13 +1494,16 @@ int Trace(debuggee *dbgee, const char *arg) { // NOLINT
                 cs_option(handle, CS_OPT_SYNTAX, CS_OPT_SYNTAX_INTEL);
                 count = cs_disasm(handle, buf, sizeof(buf), rip, 1, &insn);
                 if (count > 0) {
-                        printf(COLOR_CYAN "0x%016lx: " COLOR_RESET,
-                               insn[0].address);
-                        printf(COLOR_GREEN "%-10s" COLOR_RESET " %s\n",
+                        printf(COLOR_GREEN "0x%016lx" COLOR_RESET
+                                           " (" COLOR_YELLOW "0x%lx" COLOR_RESET
+                                           "): ",
+                               insn[0].address, offset);
+                        printf(COLOR_BLUE "%-10s" COLOR_RESET " %s\n",
                                insn[0].mnemonic, insn[0].op_str);
 
                         if (strcmp(insn[0].mnemonic, "ret") == 0 ||
                             strcmp(insn[0].mnemonic, "hlt") == 0) {
+                                print_separator();
                                 printf(COLOR_YELLOW
                                        "Trace completed at 0x%lx\n" COLOR_RESET,
                                        insn[0].address);
@@ -1494,6 +1513,7 @@ int Trace(debuggee *dbgee, const char *arg) { // NOLINT
                         }
                         cs_free(insn, count);
                 } else {
+                        print_separator();
                         (void)(fprintf(
                             stderr,
                             COLOR_RED

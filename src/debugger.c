@@ -16,7 +16,26 @@
 #include "debugger_commands.h"
 #include "ui.h"
 
-int set_ld_preload(const char *libs[], size_t count) {
+static const char *_ptrace_event_name(unsigned long event) {
+        switch (event) {
+        case PTRACE_EVENT_FORK:
+                return "PTRACE_EVENT_FORK";
+        case PTRACE_EVENT_VFORK:
+                return "PTRACE_EVENT_VFORK";
+        case PTRACE_EVENT_CLONE:
+                return "PTRACE_EVENT_CLONE";
+        case PTRACE_EVENT_EXEC:
+                return "PTRACE_EVENT_EXEC";
+        case PTRACE_EVENT_VFORK_DONE:
+                return "PTRACE_EVENT_VFORK_DONE";
+        case PTRACE_EVENT_EXIT:
+                return "PTRACE_EVENT_EXIT";
+        default:
+                return "UNKNOWN_EVENT";
+        }
+}
+
+static int _set_ld_preload(const char *libs[], size_t count) {
         if (count == 0) {
                 (void)(fprintf(
                     stderr, COLOR_RED
@@ -137,7 +156,7 @@ int start_debuggee(debugger *dbg) {
                     "libsetvbuf_unbuffered.so"};
                 size_t lib_count = sizeof(libs) / sizeof(libs[0]);
 
-                if (set_ld_preload(libs, lib_count) != 0) {
+                if (_set_ld_preload(libs, lib_count) != 0) {
                         (void)(fprintf(
                             stderr, COLOR_RED
                             "Failed to set LD_PRELOAD.\n" COLOR_RESET));
@@ -296,6 +315,11 @@ int trace_debuggee(debugger *dbg) { // NOLINT
                         }
 
                         if (event != 0) {
+                                printf(
+                                    COLOR_CYAN
+                                    "Got ptrace event %lu (%s).\n" COLOR_RESET,
+                                    event, _ptrace_event_name(event));
+
                                 size_t cp_event_index;
                                 if (is_catchpoint_event(
                                         &dbg->dbgee, &cp_event_index, event)) {
