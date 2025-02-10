@@ -118,7 +118,6 @@ int start_debuggee(debugger *dbg) {
                         exit(EXIT_FAILURE);
                 }
 
-
                 if (dbg->preload_list->count == 0) {
                         const char *default_libs[] = {
                             "libptrace_intercept.so", "libfopen_intercept.so",
@@ -130,22 +129,23 @@ int start_debuggee(debugger *dbg) {
                         for (size_t i = 0; i < lib_count; ++i) {
                                 char preload_path[PATH_MAX];
                                 if ((unsigned long)snprintf(
-                                        preload_path, sizeof(preload_path), "%s/%s",
-                                        dir, default_libs[i]) >= sizeof(preload_path)) {
-                                        (void)(fprintf(
-                                            stderr,
-                                            COLOR_RED
-                                            "Path too long for %s\n" COLOR_RESET,
-                                            default_libs[i]));
+                                        preload_path, sizeof(preload_path),
+                                        "%s/%s", dir, default_libs[i]) >=
+                                    sizeof(preload_path)) {
+                                        (void)(fprintf(stderr,
+                                                       COLOR_RED
+                                                       "Path too long for "
+                                                       "%s\n" COLOR_RESET,
+                                                       default_libs[i]));
                                         exit(EXIT_FAILURE);
                                 }
                                 if (ld_preload_list_add(dbg->preload_list,
                                                         preload_path) != 0) {
-                                        (void)(fprintf(
-                                            stderr,
-                                            COLOR_RED
-                                            "Failed to add library %s\n" COLOR_RESET,
-                                            preload_path));
+                                        (void)(fprintf(stderr,
+                                                       COLOR_RED
+                                                       "Failed to add library "
+                                                       "%s\n" COLOR_RESET,
+                                                       preload_path));
                                         exit(EXIT_FAILURE);
                                 }
                         }
