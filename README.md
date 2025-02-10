@@ -1,27 +1,15 @@
-```
-
-░▒▓████████▓▒░       ░▒▓█▓▒░░▒▓█▓▒░  ░▒▓██████▓▒░   ░▒▓███████▓▒░  ░▒▓███████▓▒░ ░▒▓█▓▒░░▒▓█▓▒░ 
-       ░▒▓█▓▒░       ░▒▓█▓▒░░▒▓█▓▒░ ░▒▓█▓▒░░▒▓█▓▒░ ░▒▓█▓▒░        ░▒▓█▓▒░        ░▒▓█▓▒░░▒▓█▓▒░ 
-     ░▒▓██▓▒░        ░▒▓█▓▒░░▒▓█▓▒░ ░▒▓█▓▒░░▒▓█▓▒░ ░▒▓█▓▒░        ░▒▓█▓▒░        ░▒▓█▓▒░░▒▓█▓▒░ 
-   ░▒▓██▓▒░           ░▒▓██████▓▒░   ░▒▓██████▓▒░  ░▒▓███████▓▒░  ░▒▓███████▓▒░  ░▒▓████████▓▒░ 
- ░▒▓██▓▒░            ░▒▓█▓▒░░▒▓█▓▒░ ░▒▓█▓▒░░▒▓█▓▒░ ░▒▓█▓▒░░▒▓█▓▒░ ░▒▓█▓▒░░▒▓█▓▒░        ░▒▓█▓▒░ 
-░▒▓█▓▒░              ░▒▓█▓▒░░▒▓█▓▒░ ░▒▓█▓▒░░▒▓█▓▒░ ░▒▓█▓▒░░▒▓█▓▒░ ░▒▓█▓▒░░▒▓█▓▒░        ░▒▓█▓▒░ 
-░▒▓████████▓▒░       ░▒▓█▓▒░░▒▓█▓▒░  ░▒▓██████▓▒░   ░▒▓██████▓▒░   ░▒▓██████▓▒░         ░▒▓█▓▒░ 
-                                                                                                
-                                                                                                            
-```
-
 # Z Anti-Anti-Debugger
 
-A no-frills debugger engineered for clarity, precision, and raw control.
+A debugger designed to bypass anti-debugging mechanisms with clear, precise control over program execution.
 
 ## Overview
 
-Modern applications often deploy sophisticated defenses to thwart debugging attempts. Z Anti-Anti-Debugger bypasses these obstacles with a direct, unembellished approach. Every command is designed to give you clear, explicit control over program execution - nothing more, nothing less.
+Modern applications often implement advanced techniques to hinder debugging. Z Anti-Anti-Debugger is built to overcome these measures using a direct approach. Each command is designed to provide explicit control over the target program’s execution without unnecessary complexity.
 
 ## Build & Run
 
 ### Clone the Repository
+
 Clone the repository along with its submodules:
 
 ```bash
@@ -29,6 +17,7 @@ git clone --recurse-submodules https://github.com/JavaHammes/Z.git
 ```
 
 ### Build with CMake
+
 Generate the build files and compile the project:
 
 ```bash
@@ -37,6 +26,7 @@ cmake --build build --clean-first
 ```
 
 ### Execute the Debugger
+
 Navigate to the binary folder and start Z with your target executable:
 
 ```bash
@@ -48,15 +38,13 @@ Replace `<target_executable>` with the path to the program you wish to debug.
 
 ## Command Reference
 
-Every command is designed for precision and clarity.
-
 ### General Commands
 
 ```
-help                - Display this help message
+help                - Display the help message
 exit                - Quit the debugger
 clear               - Clear the screen
-log <filename>      - Start logging output to the specified file
+log <filename>      - Begin logging output to the specified file
 !!                  - Repeat the previous command
 ```
 
@@ -68,11 +56,11 @@ con                 - Continue execution after a pause
 step                - Execute the next instruction
 over                - Step over the current instruction
 out                 - Step out of the current function
-skip <n>            - Advance by n instructions
+skip <n>            - Advance execution by n instructions
 jump <addr>         - Jump to a specific address
 jump *<offset>      - Jump to base_address + offset
 jump &<func_name>   - Jump to the address of a function
-trace <addr>        - Begin tracing at the given address
+trace <addr>        - Begin tracing from the given address
 trace *<offset>     - Trace from base_address + offset
 trace &<func_name>  - Trace from a function's address
 ```
@@ -115,10 +103,8 @@ patch <addr>=<hex>  - Patch memory at the specified address with hexadecimal opc
 
 ## Contributing
 
-Contributions are welcome. Fork the repository, open an issue, or submit a pull request to help enhance Z Anti-Anti-Debugger. Your improvements make this tool even more effective for everyone.
+Contributions to improve this tool are welcome. Please fork the repository, open an issue, or submit a pull request with your proposed changes.
 
 ## License
 
-This project is released under the MIT License. Use, modify, and distribute it freely.
-
-**Happy debugging!**
+This project is released under the MIT License. You are free to use, modify, and distribute it according to the terms of this license.
