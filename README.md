@@ -30,11 +30,31 @@ cmake --build build --clean-first
 Navigate to the binary folder and start Z with your target executable:
 
 ```bash
-cd bin
-./z <target_executable>
+cd bin/
+./z <target_executable> [ld_preload_library1 [ld_preload_library2 ...]]
 ```
 
-Replace `<target_executable>` with the path to the program you wish to debug.
+- Replace `<target_executable>` with the path to the program you wish to debug.
+- `[ld_preload_library1 [ld_preload_library2 ...]]`: Optional custom LD_PRELOAD libraries.
+
+If no custom libraries are specified, the following 5 default libraries will be used:
+
+- `libfopen_intercept.so`
+- `libgetenv_intercept.so`
+- `libprctl_intercept.so`
+- `libptrace_intercept.so`
+- `libsetvbuf_unbuffered.so`
+
+#### Custom `LD_PRELOAD` Libraries
+
+You can extend Z by supplying your own LD_PRELOAD libraries. **Important**: Each custom library must include the following marker function:
+
+```C
+void zZz() {}
+```
+This marker acts as a signature, signaling to Z’s default preload libraries that your library is custom—especially crucial when combining default and custom libraries.
+
+For instance, in the `fopen` override, when processing files like `/proc/self/maps`, the library filters only the lines corresponding to libraries that include the **zZz** marker. This ensures that any of the debuggee’s own libraries present in `/proc/self/maps` aren’t mistakenly filtered out (which could alert the debuggee to the presence of a debugger). Without this marker, your custom library might not integrate properly, potentially leading to unfiltered or unexpected behavior in your `fopen` or `getenv` overrides.
 
 ## Command Reference
 
@@ -45,6 +65,7 @@ help                - Display the help message
 exit                - Quit the debugger
 clear               - Clear the screen
 log <filename>      - Begin logging output to the specified file
+preload             - Show preloaded libraries
 !!                  - Repeat the previous command
 ```
 
