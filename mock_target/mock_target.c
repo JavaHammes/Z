@@ -14,8 +14,9 @@
 int debug_count = 0;
 
 static const char *blacklist[] = {
-    "libfopen_intercept.so", "libprctl_intercept.so", "libgetenv_intercept.so",
-    "libptrace_intercept.so", NULL};
+    "libfopen_intercept.so",    "libprctl_intercept.so",
+    "libgetenv_intercept.so",   "libptrace_intercept.so",
+    "libsetvbuf_unbuffered.so", NULL};
 
 bool sigtrap_intercepted = false;
 
@@ -77,7 +78,7 @@ bool check_for_additional_libraries(void) {
         return false;
 }
 
-bool check_ldpreload(void) {
+bool check_ld_preload(void) {
         char *ld_preload = getenv("LD_PRELOAD");
 
         if (!ld_preload) {
@@ -99,7 +100,7 @@ void check_for_debugging(void) {
         bool debugging_detected = check_tracer_pid() || try_to_debug_myself() ||
                                   timing_analysis() ||
                                   check_for_additional_libraries() ||
-                                  (!sigtrap_intercepted) || check_ldpreload();
+                                  (!sigtrap_intercepted) || check_ld_preload();
 
         if (debugging_detected) {
                 printf("Am I flawed because I am observed, "
@@ -155,8 +156,6 @@ void increment_counter(void) {
 }
 
 int main(void) {
-        (void)(setvbuf(stdout, NULL, _IONBF, 0));
-
         init_anti_debug();
         check_for_debugging();
 

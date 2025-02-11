@@ -16,7 +16,6 @@ typedef enum {
         IDLE = 0,
         RUNNING = 1,
         STOPPED = 2,
-        SINGLE_STEPPING = 3,
         TERMINATED = 4,
 } debuggee_state;
 

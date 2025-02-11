@@ -154,14 +154,14 @@ int remove_breakpoint(breakpoint_handler *handler, size_t index) {
                 (void)(fprintf(
                     stderr, COLOR_RED
                     "Error: breakpoint index out of range.\n" COLOR_RESET));
-                return -1;
+                return EXIT_FAILURE;
         }
 
         memmove(&handler->breakpoints[index], &handler->breakpoints[index + 1],
                 (handler->count - index - 1) * sizeof(breakpoint));
         handler->count--;
 
-        return 0;
+        return EXIT_SUCCESS;
 }
 
 void list_breakpoints(const breakpoint_handler *handler) {

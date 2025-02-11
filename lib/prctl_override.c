@@ -4,6 +4,8 @@
 #include <stdio.h>
 #include <sys/prctl.h>
 
+void zZz(void) {}
+
 typedef int (*orig_prctl_f_type)(int option, ...);
 
 int prctl(int option, ...) {

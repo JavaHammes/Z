@@ -4,12 +4,59 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "filter_so.h"
+void zZz(void) {}
 
+#define MAX_LIBS 128
 #define MAX_LINE_LENGTH 1024
 #define DECIMAL_BASE 10
 
+static char *ld_preload_libs[MAX_LIBS] = {NULL};
 typedef FILE *(*orig_fopen_f_type)(const char *, const char *);
+
+static int _has_zZz(const char *lib_path) {
+        void *handle = dlopen(lib_path, RTLD_NOLOAD | RTLD_NOW);
+        if (!handle) {
+                return 0;
+        }
+        void *sym = dlsym(handle, "zZz");
+        dlclose(handle);
+        return (sym != NULL);
+}
+
+static void parse_ld_preload(void) {
+        for (int j = 0; j < MAX_LIBS; j++) {
+                if (ld_preload_libs[j] != NULL) {
+                        free(ld_preload_libs[j]);
+                        ld_preload_libs[j] = NULL;
+                }
+        }
+
+        const char *ld_preload = getenv("LD_PRELOAD");
+        if (!ld_preload || !*ld_preload) {
+                (void)(fprintf(stderr,
+                               "[HOOK] LD_PRELOAD is not set or empty.\n"));
+                return;
+        }
+
+        char *temp = strdup(ld_preload);
+        if (!temp) {
+                (void)(fprintf(
+                    stderr,
+                    "[HOOK] Failed to allocate memory for LD_PRELOAD copy.\n"));
+                return;
+        }
+
+        int i = 0;
+        char *saveptr = NULL;
+        for (char *token = strtok_r(temp, ":", &saveptr);
+             token != NULL && i < MAX_LIBS - 1;
+             token = strtok_r(NULL, ":", &saveptr)) {
+                if (_has_zZz(token)) {
+                        ld_preload_libs[i++] = strdup(token);
+                }
+        }
+        free(temp);
+}
 
 FILE *fopen(const char *__restrict__filename, const char *__modes) { // NOLINT
         static orig_fopen_f_type real_fopen = NULL;
@@ -17,19 +64,20 @@ FILE *fopen(const char *__restrict__filename, const char *__modes) { // NOLINT
         if (!real_fopen) {
                 void *handle = dlsym(RTLD_NEXT, "fopen");
                 if (!handle) {
-                        (void)(fprintf(stderr, "Error in `dlsym`: %s\n",
+                        (void)(fprintf(stderr,
+                                       "[HOOK] Error in dlsym for fopen: %s\n",
                                        dlerror()));
                         return NULL;
                 }
-
                 union {
                         void *ptr;
                         orig_fopen_f_type func;
                 } cast;
-
                 cast.ptr = handle;
                 real_fopen = cast.func;
         }
+
+        parse_ld_preload();
 
         (void)(fprintf(stderr,
                        "[HOOK] fopen called with file=\"%s\", mode=\"%s\"\n",
@@ -80,16 +128,14 @@ FILE *fopen(const char *__restrict__filename, const char *__modes) { // NOLINT
                 }
 
                 char line[MAX_LINE_LENGTH];
-
                 while (fgets(line, sizeof(line), real_maps) != NULL) {
                         int should_filter = 0;
-                        for (int i = 0; SO_FILES[i] != NULL; i++) {
-                                if (strstr(line, SO_FILES[i]) != NULL) {
+                        for (int i = 0; ld_preload_libs[i] != NULL; i++) {
+                                if (strstr(line, ld_preload_libs[i]) != NULL) {
                                         should_filter = 1;
                                         break;
                                 }
                         }
-
                         if (!should_filter) {
                                 (void)(fputs(line, fake_maps));
                         }
@@ -101,4 +147,13 @@ FILE *fopen(const char *__restrict__filename, const char *__modes) { // NOLINT
         }
 
         return real_fopen(__restrict__filename, __modes);
+}
+
+__attribute__((destructor)) static void free_ld_preload_libs(void) {
+        for (int i = 0; i < MAX_LIBS; i++) {
+                if (ld_preload_libs[i]) {
+                        free(ld_preload_libs[i]);
+                        ld_preload_libs[i] = NULL;
+                }
+        }
 }

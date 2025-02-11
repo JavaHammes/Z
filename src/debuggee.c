@@ -74,7 +74,7 @@ static inline unsigned long DR7_LEN_SHIFT(int bpno) {
         return (DR7_LEN_BASE_SHIFT + bpno * 4);
 }
 
-static bool should_remove_breakpoints(const debuggee *dbgee) {
+static bool _should_remove_breakpoints(const debuggee *dbgee) {
         printf(COLOR_YELLOW "There are %zu breakpoints set. Do you want to "
                             "remove all breakpoints and run until termination? "
                             "(y/N): " COLOR_RESET,
@@ -109,7 +109,6 @@ static bool _is_valid_address(debuggee *dbgee, unsigned long addr) {
 
         char line[LINE_BUFFER_SIZE];
         bool valid = false;
-
         while (fgets(line, sizeof(line), maps)) {
                 unsigned long start;
                 unsigned long end;
@@ -163,6 +162,7 @@ static int _read_debug_register(pid_t pid, unsigned long offset,
                 perror("ptrace PEEKUSER debug register");
                 return EXIT_FAILURE;
         }
+
         return EXIT_SUCCESS;
 }
 
@@ -172,6 +172,7 @@ static int _set_debug_register(pid_t pid, unsigned long offset,
                 perror("ptrace POKEUSER DR7");
                 return EXIT_FAILURE;
         }
+
         return EXIT_SUCCESS;
 }
 
@@ -216,6 +217,7 @@ static int _remove_all_breakpoints(debuggee *dbgee) {
                         return EXIT_FAILURE;
                 }
         }
+
         return EXIT_SUCCESS;
 }
 
@@ -231,6 +233,7 @@ static bool _breakpoint_exists(const debuggee *dbgee, unsigned long address) {
                         return true;
                 }
         }
+
         return false;
 }
 
@@ -517,23 +520,57 @@ static int _step_and_wait(debuggee *dbgee) { // NOLINT
                         return EXIT_FAILURE;
                 }
 
-                if (!breakpoint_handled && sig == SIGTRAP &&
-                    info.si_code != TRAP_TRACE) {
-                        printf(COLOR_CYAN "[INFO] Sending SIGTRAP back to "
-                                          "debuggee.\n" COLOR_RESET);
-                        if (ptrace(PTRACE_CONT, dbgee->pid, NULL, SIGTRAP) ==
-                            -1) {
-                                perror("ptrace CONT to send "
-                                       "SIGTRAP");
-                                return EXIT_FAILURE;
-                        }
+                if (info.si_code != TRAP_TRACE) {
+                        if (!breakpoint_handled) {
+                                if (sig == SIGTRAP) {
+                                        printf(COLOR_CYAN
+                                               "[INFO] Sending SIGTRAP back to "
+                                               "debuggee.\n" COLOR_RESET);
+                                        if (ptrace(PTRACE_CONT, dbgee->pid,
+                                                   NULL, SIGTRAP) == -1) {
+                                                perror("ptrace CONT to send "
+                                                       "SIGTRAP");
+                                                return EXIT_FAILURE;
+                                        }
 
-                        printf(COLOR_YELLOW "Ignoring signal %d.\n" COLOR_RESET,
-                               sig);
+                                        int status;
+                                        if (waitpid(dbgee->pid, &status, 0) ==
+                                            -1) {
+                                                perror("waitpid");
+                                                return EXIT_FAILURE;
+                                        }
+
+                                        if (WIFEXITED(status)) {
+                                                printf(
+                                                    COLOR_YELLOW
+                                                    "Debuggee %d exited with "
+                                                    "status %d.\n" COLOR_RESET,
+                                                    dbgee->pid,
+                                                    WEXITSTATUS(status));
+                                                dbgee->state = TERMINATED;
+                                                return EXIT_FAILURE;
+                                        }
+
+                                        if (WIFSIGNALED(status)) {
+                                                printf(
+                                                    COLOR_YELLOW
+                                                    "Debuggee %d was killed by "
+                                                    "signal %d.\n" COLOR_RESET,
+                                                    dbgee->pid,
+                                                    WTERMSIG(status));
+                                                dbgee->state = TERMINATED;
+                                                return EXIT_FAILURE;
+                                        }
+                                } else {
+                                        printf(
+                                            COLOR_YELLOW
+                                            "Ignoring signal %d.\n" COLOR_RESET,
+                                            sig);
+                                }
+                        }
                 }
         }
 
-        dbgee->state = STOPPED;
         return EXIT_SUCCESS;
 }
 
@@ -678,7 +715,6 @@ static int _set_rip(debuggee *dbgee, unsigned long rip) {
 
 static int _read_rip(debuggee *dbgee, unsigned long *rip) {
         struct user_regs_struct regs;
-
         if (ptrace(PTRACE_GETREGS, dbgee->pid, NULL, &regs) == -1) {
                 perror("ptrace GETREGS");
                 return EXIT_FAILURE;
@@ -697,8 +733,8 @@ static bool _set_sw_breakpoint(pid_t pid, uint64_t addr,
                 perror("Error reading data with PTRACE_PEEKDATA");
                 return false;
         }
-        uint64_t code_break = (*code_at_addr & ~MAX_BYTE_VALUE) | int3;
 
+        uint64_t code_break = (*code_at_addr & ~MAX_BYTE_VALUE) | int3;
         if (ptrace(PTRACE_POKEDATA, pid, addr, code_break) == -1) {
                 perror("Error writing data with PTRACE_POKEDATA");
                 return false;
@@ -716,7 +752,6 @@ static int _replace_sw_breakpoint(pid_t pid, uint64_t addr, uint64_t old_byte) {
         }
 
         uint64_t code_restored = (code_at_addr & ~MAX_BYTE_VALUE) | old_byte;
-
         if (ptrace(PTRACE_POKEDATA, pid, addr, code_restored) == -1) {
                 perror("Error writing data with PTRACE_POKEDATA");
                 return EXIT_FAILURE;
@@ -972,6 +1007,9 @@ void Help(void) {
                "  clear               - Clear the screen\n" COLOR_RESET);
         printf(COLOR_GREEN "  log <filename>      - Start logging output to "
                            "<filename>\n" COLOR_RESET);
+        printf(
+            COLOR_GREEN
+            "  preload             - Show preloaded libraries\n" COLOR_RESET);
         printf(COLOR_GREEN
                "  !!                  - Repeat last command\n" COLOR_RESET);
         print_separator();
@@ -1103,7 +1141,7 @@ int Run(debuggee *dbgee) {
 
         if (dbgee->has_run) {
                 if (dbgee->bp_handler->count > 0) {
-                        if (should_remove_breakpoints(dbgee)) {
+                        if (_should_remove_breakpoints(dbgee)) {
                                 if (_remove_all_breakpoints(dbgee) !=
                                     EXIT_SUCCESS) {
                                         return EXIT_FAILURE;
@@ -1159,7 +1197,6 @@ int Step(debuggee *dbgee) {
                 return EXIT_FAILURE;
         }
 
-        dbgee->state = SINGLE_STEPPING;
         return EXIT_SUCCESS;
 }
 
@@ -1175,8 +1212,7 @@ int StepOver(debuggee *dbgee) {
         unsigned long final_addr = rip;
         while (_is_call_instruction(dbgee, final_addr)) {
 
-                // Set temporary breakpoint at the instruction after the call
-                // instruction. On x86_64 we know that we need to add 5. 1 byte
+                // On x86_64 we know that we need to add 5. 1 byte
                 // for oppcode and 4 for the relative offset.
                 final_addr += NEXT_INSTRUCTION_OFFSET;
         }
@@ -1251,12 +1287,16 @@ int Skip(debuggee *dbgee, const char *arg) {
 
         for (int i = 0; i < n; i++) {
                 if (_step_and_wait(dbgee) != EXIT_SUCCESS) {
-                        (void)(fprintf(stderr, COLOR_RED
-                                       "Failed to single step.\n" COLOR_RESET));
+                        (void)(fprintf(stderr,
+                                       COLOR_RED
+                                       "Failed to single-step instruction %d "
+                                       "of %d.\n" COLOR_RESET,
+                                       i + 1, n));
                         return EXIT_FAILURE;
                 }
         }
 
+        printf(COLOR_GREEN "Skipped %d instructions.\n" COLOR_RESET, n);
         return EXIT_SUCCESS;
 }
 
@@ -1265,6 +1305,7 @@ int Jump(debuggee *dbgee, const char *arg) { // NOLINT
         if (!_parse_breakpoint_argument(dbgee, arg, &address)) {
                 return EXIT_FAILURE;
         }
+
         if (address == 0) {
                 (void)(fprintf(stderr,
                                COLOR_RED "Invalid address: %s\n" COLOR_RESET,
@@ -1378,6 +1419,7 @@ int Jump(debuggee *dbgee, const char *arg) { // NOLINT
                         if (!handled_by_debugger && sig == SIGTRAP) {
                                 printf(COLOR_CYAN "[INFO] Forwarding SIGTRAP "
                                                   "to debuggee.\n" COLOR_RESET);
+                                (void)(fflush(stdout));
                                 if (ptrace(PTRACE_CONT, dbgee->pid, NULL,
                                            SIGTRAP) == -1) {
                                         perror("ptrace CONT to send SIGTRAP");
@@ -1403,6 +1445,8 @@ int Trace(debuggee *dbgee, const char *arg) { // NOLINT
                 return EXIT_FAILURE;
         }
 
+        print_separator();
+
         while (true) {
                 if (_step_and_wait(dbgee) != EXIT_SUCCESS) {
                         (void)(fprintf(stderr, COLOR_RED
@@ -1427,10 +1471,22 @@ int Trace(debuggee *dbgee, const char *arg) { // NOLINT
                         return EXIT_FAILURE;
                 }
 
+                char module_name[MODULE_NAME_SIZE] = {0};
+                unsigned long base_address = _get_module_base_address(
+                    dbgee->pid, rip, module_name, sizeof(module_name));
+                if (base_address == 0) {
+                        (void)(fprintf(stderr,
+                                       COLOR_RED
+                                       "Failed to retrieve base address for "
+                                       "0x%lx.\n" COLOR_RESET,
+                                       rip));
+                        return EXIT_FAILURE;
+                }
+                unsigned long offset = rip - base_address;
+
                 csh handle;
                 cs_insn *insn;
                 size_t count;
-
                 if (cs_open(CS_ARCH_X86, CS_MODE_64, &handle) != CS_ERR_OK) {
                         (void)(fprintf(
                             stderr, COLOR_RED
@@ -1441,13 +1497,16 @@ int Trace(debuggee *dbgee, const char *arg) { // NOLINT
                 cs_option(handle, CS_OPT_SYNTAX, CS_OPT_SYNTAX_INTEL);
                 count = cs_disasm(handle, buf, sizeof(buf), rip, 1, &insn);
                 if (count > 0) {
-                        printf(COLOR_CYAN "0x%016lx: " COLOR_RESET,
-                               insn[0].address);
-                        printf(COLOR_GREEN "%-10s" COLOR_RESET " %s\n",
+                        printf(COLOR_GREEN "0x%016lx" COLOR_RESET
+                                           " (" COLOR_YELLOW "0x%lx" COLOR_RESET
+                                           "): ",
+                               insn[0].address, offset);
+                        printf(COLOR_BLUE "%-10s" COLOR_RESET " %s\n",
                                insn[0].mnemonic, insn[0].op_str);
 
                         if (strcmp(insn[0].mnemonic, "ret") == 0 ||
                             strcmp(insn[0].mnemonic, "hlt") == 0) {
+                                print_separator();
                                 printf(COLOR_YELLOW
                                        "Trace completed at 0x%lx\n" COLOR_RESET,
                                        insn[0].address);
@@ -1457,6 +1516,7 @@ int Trace(debuggee *dbgee, const char *arg) { // NOLINT
                         }
                         cs_free(insn, count);
                 } else {
+                        print_separator();
                         (void)(fprintf(
                             stderr,
                             COLOR_RED
@@ -2052,7 +2112,6 @@ int Dump(debuggee *dbgee) { // NOLINT
         csh handle;
         cs_insn *insn;
         size_t count;
-
         if (cs_open(CS_ARCH_X86, CS_MODE_64, &handle) != CS_ERR_OK) {
                 (void)(fprintf(stderr, COLOR_RED
                                "Failed to initialize Capstone.\n" COLOR_RESET));
@@ -2081,7 +2140,6 @@ int Dump(debuggee *dbgee) { // NOLINT
                 cs_close(&handle);
                 return EXIT_FAILURE;
         }
-
         cs_close(&handle);
 
         printf(COLOR_CYAN "Memory dump in module '%s' at RIP: " COLOR_GREEN
@@ -2125,7 +2183,6 @@ int Dump(debuggee *dbgee) { // NOLINT
                         break;
                 }
         }
-
         print_separator();
 
         return EXIT_SUCCESS;
@@ -2176,10 +2233,10 @@ int Patch(debuggee *dbgee, const char *arg) { // NOLINT
                         return EXIT_FAILURE;
                 }
         }
+        free(opcode_bytes);
 
         printf(COLOR_GREEN "Patched %zu bytes at address 0x%lx.\n" COLOR_RESET,
                num_bytes, address);
-        free(opcode_bytes);
         return EXIT_SUCCESS;
 }
 
@@ -2255,7 +2312,6 @@ int Disassemble(debuggee *dbgee) {
                     stderr, COLOR_RED
                     "Failed to disassemble given code!\n" COLOR_RESET));
         }
-
         cs_close(&handle);
 
         return EXIT_SUCCESS;
@@ -2447,7 +2503,6 @@ int Backtrace(debuggee *dbgee) {
         unsigned long rbp = regs.rbp;
         int frame = 1;
         const int max_frames = 64;
-
         while (rbp != 0 && frame < max_frames) {
                 errno = 0;
                 unsigned long ret_addr =
@@ -2506,7 +2561,6 @@ int Address(debuggee *dbgee, const char *arg) {
         unsigned long address = base_address + func_offset;
         printf(COLOR_GREEN "The address of %s is: 0x%lx\n" COLOR_RESET, arg,
                address);
-
         return EXIT_SUCCESS;
 }
 
@@ -2539,7 +2593,7 @@ unsigned long get_entry_absolute_address(debuggee *dbgee) {
                 entry_point += base_address;
         }
 
-        printf(COLOR_GREEN "Program entry point: 0x%lx\n" COLOR_RESET,
+        printf(COLOR_CYAN "Program entry point: 0x%lx\n" COLOR_RESET,
                entry_point);
         return entry_point;
 }
@@ -2564,7 +2618,6 @@ int set_temp_sw_breakpoint(debuggee *dbgee, uint64_t addr) {
         }
 
         dbgee->bp_handler->breakpoints[bp_index].temporary = true;
-
         return EXIT_SUCCESS;
 }
 
@@ -2759,7 +2812,6 @@ int handle_software_breakpoint(debuggee *dbgee, size_t bp_index) {
 
         printf(COLOR_CYAN "Software breakpoint hit '%lx'.\n" COLOR_RESET,
                address);
-
         return EXIT_SUCCESS;
 }
 
@@ -2769,7 +2821,6 @@ int handle_hardware_breakpoint(debuggee *dbgee, size_t bp_index) {
 
         printf(COLOR_CYAN "Hardware breakpoint hit '%lx'.\n" COLOR_RESET,
                address);
-
         return EXIT_SUCCESS;
 }
 
@@ -2779,7 +2830,6 @@ int handle_catchpoint_signal(debuggee *dbgee, size_t bp_index) {
 
         printf(COLOR_CYAN "Catchpoint '%zu' caught signal %d.\n" COLOR_RESET,
                bp_index, signal_number);
-
         return EXIT_SUCCESS;
 }
 
@@ -2789,7 +2839,6 @@ int handle_catchpoint_event(debuggee *dbgee, size_t bp_index) {
 
         printf(COLOR_CYAN "Event catchpoint for '%s' triggered.\n" COLOR_RESET,
                event_name);
-
         return EXIT_SUCCESS;
 }
 
@@ -2798,6 +2847,5 @@ int handle_watchpoint(debuggee *dbgee, size_t bp_index) {
         unsigned long address = bp->data.hw_bp.address;
 
         printf(COLOR_CYAN "Watchpoint hit '%lx'.\n" COLOR_RESET, address);
-
         return EXIT_SUCCESS;
 }
