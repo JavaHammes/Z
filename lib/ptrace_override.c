@@ -5,6 +5,8 @@
 #include <sys/ptrace.h>
 #include <sys/types.h>
 
+void zZz(void) {}
+
 typedef long (*orig_ptrace_f_type)(enum __ptrace_request request, ...);
 
 long ptrace(enum __ptrace_request request, ...) {

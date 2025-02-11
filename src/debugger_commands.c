@@ -9,6 +9,7 @@
 #include "debuggee.h"
 #include "debugger.h"
 #include "debugger_commands.h"
+#include "ld_preload.h"
 #include "ui.h"
 
 static const command_mapping command_map[] = {

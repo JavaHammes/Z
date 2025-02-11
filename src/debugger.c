@@ -100,7 +100,8 @@ static void _process_ld_preload_args(debugger *dbg, int argc, char **argv) {
                 _add_default_preload_libraries(dbg);
         }
 
-        printf(COLOR_CYAN "Preloaded (%zu) libraries.\n" COLOR_RESET, dbg->preload_list->count);
+        printf(COLOR_CYAN "Preloaded (%zu) libraries.\n" COLOR_RESET,
+               dbg->preload_list->count);
 }
 
 void init_debugger(debugger *dbg, const char *debuggee_name, int argc,
