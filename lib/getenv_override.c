@@ -62,7 +62,7 @@ char *getenv(const char *name) { // NOLINT
                         (void)(fprintf(stderr,
                                        "[HOOK] Failed to allocate memory for "
                                        "LD_PRELOAD copy.\n"));
-                        return original_value; /* fallback to original */
+                        return original_value;
                 }
 
                 static char sanitized_ldpreload[MAX_LINE_LENGTH];

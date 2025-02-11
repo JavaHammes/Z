@@ -1007,6 +1007,9 @@ void Help(void) {
                "  clear               - Clear the screen\n" COLOR_RESET);
         printf(COLOR_GREEN "  log <filename>      - Start logging output to "
                            "<filename>\n" COLOR_RESET);
+        printf(
+            COLOR_GREEN
+            "  preload             - Show preloaded libraries\n" COLOR_RESET);
         printf(COLOR_GREEN
                "  !!                  - Repeat last command\n" COLOR_RESET);
         print_separator();
