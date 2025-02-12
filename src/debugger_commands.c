@@ -49,6 +49,12 @@ enum {
         LINENOISE_MAX_HISTORY_LENGTH = 100,
 };
 
+static void _print_banner_goodbye(void) {
+        printf("\n ╔════════════════════════════════════════════════╗\n");
+        printf(" ║              Shutting down.......              ║\n");
+        printf(" ╚════════════════════════════════════════════════╝\n\n");
+}
+
 static command_t _get_command_type(const char *command) {
         size_t map_size = sizeof(command_map) / sizeof(command_map[0]);
 
@@ -84,9 +90,8 @@ int handle_user_input(debugger *dbg, command_t cmd_type, // NOLINT
 
                 if (confirm != NULL) {
                         if (confirm[0] == 'y' || confirm[0] == 'Y') {
+                                _print_banner_goodbye();
                                 free_debugger(dbg);
-                                printf(COLOR_RED
-                                       "Exiting debugger.\n" COLOR_RESET);
                                 free(confirm);
                                 exit(EXIT_SUCCESS);
                         } else {
@@ -380,6 +385,7 @@ int read_and_handle_user_command(debugger *dbg) {
                 (void)(fflush(stdout));
 
                 input = linenoise("<- Z -> ");
+
                 if (input == NULL) {
                         if (errno == EAGAIN) {
                                 handle_user_input(dbg, CLI_EXIT, "");
