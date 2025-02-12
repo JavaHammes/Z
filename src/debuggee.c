@@ -282,7 +282,7 @@ static unsigned long _get_load_base(debuggee *dbgee) {
         FILE *maps = fopen(maps_path, "r");
         if (!maps) {
                 perror("fopen maps");
-                return 0;
+                return EXIT_SUCCESS;
         }
 
         char line[LINE_BUFFER_SIZE];
@@ -324,7 +324,7 @@ static unsigned long _get_module_base_address(pid_t pid, unsigned long rip,
         FILE *maps = fopen(maps_path, "r");
         if (!maps) {
                 perror("fopen maps");
-                return 0;
+                return EXIT_SUCCESS;
         }
 
         char line[LINE_BUFFER_SIZE];
@@ -377,7 +377,7 @@ static unsigned long _get_symbol_offset(debuggee *dbgee,
         if (symbol_name == NULL) {
                 (void)(fprintf(stderr, COLOR_RED
                                "Symbol name cannot be NULL.\n" COLOR_RESET));
-                return 0;
+                return EXIT_SUCCESS;
         }
 
         elf_symtab symtab_struct;
@@ -385,7 +385,7 @@ static unsigned long _get_symbol_offset(debuggee *dbgee,
                 (void)(fprintf(
                     stderr, COLOR_RED
                     "Failed to read ELF symbol tables.\n" COLOR_RESET));
-                return 0;
+                return EXIT_SUCCESS;
         }
 
         unsigned long symbol_offset = 0;
@@ -628,18 +628,18 @@ static int _get_return_address(debuggee *dbgee, unsigned long *ret_addr_out) {
         struct user_regs_struct regs;
         if (ptrace(PTRACE_GETREGS, dbgee->pid, NULL, &regs) == -1) {
                 perror("ptrace GETREGS");
-                return -1;
+                return EXIT_FAILURE;
         }
 
         unsigned long return_address = ptrace(PTRACE_PEEKDATA, dbgee->pid,
                                               regs.rbp + sizeof(void *), NULL);
         if (return_address == (unsigned long)-1 && errno != 0) {
                 perror("ptrace PEEKDATA for return address");
-                return -1;
+                return EXIT_FAILURE;
         }
 
         *ret_addr_out = return_address;
-        return 0;
+        return EXIT_SUCCESS;
 }
 
 static bool _get_available_debug_register(debuggee *dbgee, int *bpno,
@@ -1507,7 +1507,7 @@ int Trace(debuggee *dbgee, const char *arg) { // NOLINT
                         if (strcmp(insn[0].mnemonic, "ret") == 0 ||
                             strcmp(insn[0].mnemonic, "hlt") == 0) {
                                 print_separator();
-                                printf(COLOR_YELLOW
+                                printf(COLOR_GREEN
                                        "Trace completed at 0x%lx\n" COLOR_RESET,
                                        insn[0].address);
                                 cs_free(insn, count);
@@ -1962,7 +1962,8 @@ int RemoveBreakpoint(debuggee *dbgee, const char *arg) { // NOLINT
                                        bp->data.sw_bp.address));
                         return EXIT_FAILURE;
                 }
-                printf("Software breakpoint removed at 0x%lx [Index: %zu]\n",
+                printf(COLOR_GREEN "Software breakpoint removed at 0x%lx "
+                                   "[Index: %zu]\n" COLOR_RESET,
                        bp->data.sw_bp.address, index);
                 break;
         }
@@ -2089,7 +2090,7 @@ int Dump(debuggee *dbgee) { // NOLINT
                 (void)(fprintf(
                     stderr,
                     COLOR_RED "Failed to retrieve current RIP.\n" COLOR_RESET));
-                return -1;
+                return EXIT_FAILURE;
         }
 
         base_address = _get_module_base_address(dbgee->pid, rip, module_name,
@@ -2497,7 +2498,9 @@ int Backtrace(debuggee *dbgee) {
         char module_name[MODULE_NAME_SIZE] = {0};
         unsigned long module_base = _get_module_base_address(
             dbgee->pid, rip, module_name, sizeof(module_name));
-        printf(COLOR_GREEN "Frame 0:" COLOR_RESET " 0x%016lx in %s + 0x%lx\n",
+
+        printf("Frame 0:" COLOR_GREEN " 0x%016lx" COLOR_RESET " in " COLOR_BLUE
+               "%s" COLOR_RESET " + " COLOR_YELLOW "0x%lx\n" COLOR_RESET,
                rip, module_name, rip - module_base);
 
         unsigned long rbp = regs.rbp;
@@ -2527,8 +2530,9 @@ int Backtrace(debuggee *dbgee) {
 
                 module_base = _get_module_base_address(
                     dbgee->pid, ret_addr, module_name, sizeof(module_name));
-                printf(COLOR_GREEN "Frame %d:" COLOR_RESET
-                                   " 0x%016lx in %s + 0x%lx\n",
+                printf("Frame %d:" COLOR_GREEN " 0x%016lx" COLOR_RESET
+                       " in " COLOR_BLUE "%s" COLOR_RESET " + " COLOR_YELLOW
+                       "0x%lx\n" COLOR_RESET,
                        frame, ret_addr, module_name, ret_addr - module_base);
 
                 rbp = next_rbp;
@@ -2568,7 +2572,7 @@ unsigned long get_entry_absolute_address(debuggee *dbgee) {
         int fd = open(dbgee->name, O_RDONLY);
         if (fd < 0) {
                 perror("open");
-                return 0;
+                return EXIT_SUCCESS;
         }
 
         Elf64_Ehdr ehdr;
@@ -2576,7 +2580,7 @@ unsigned long get_entry_absolute_address(debuggee *dbgee) {
         if (bytes_read != sizeof(ehdr)) {
                 perror("read");
                 close(fd);
-                return 0;
+                return EXIT_SUCCESS;
         }
         close(fd);
 
@@ -2588,13 +2592,11 @@ unsigned long get_entry_absolute_address(debuggee *dbgee) {
                         (void)(fprintf(stderr, COLOR_RED
                                        "Failed to get base address for PIE "
                                        "binary.\n" COLOR_RESET));
-                        return 0;
+                        return EXIT_SUCCESS;
                 }
                 entry_point += base_address;
         }
 
-        printf(COLOR_CYAN "Program entry point: 0x%lx\n" COLOR_RESET,
-               entry_point);
         return entry_point;
 }
 
@@ -2808,10 +2810,11 @@ int handle_software_breakpoint(debuggee *dbgee, size_t bp_index) {
                                        address));
                         return EXIT_FAILURE;
                 }
+                printf(COLOR_CYAN
+                       "Software breakpoint hit '%lx'.\n" COLOR_RESET,
+                       address);
         }
 
-        printf(COLOR_CYAN "Software breakpoint hit '%lx'.\n" COLOR_RESET,
-               address);
         return EXIT_SUCCESS;
 }
 

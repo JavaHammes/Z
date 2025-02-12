@@ -49,12 +49,6 @@ enum {
         LINENOISE_MAX_HISTORY_LENGTH = 100,
 };
 
-static void _print_banner_goodbye(void) {
-        printf("\n ╔════════════════════════════════════════════════╗\n");
-        printf(" ║              Shutting down.......              ║\n");
-        printf(" ╚════════════════════════════════════════════════╝\n\n");
-}
-
 static command_t _get_command_type(const char *command) {
         size_t map_size = sizeof(command_map) / sizeof(command_map[0]);
 
@@ -90,7 +84,7 @@ int handle_user_input(debugger *dbg, command_t cmd_type, // NOLINT
 
                 if (confirm != NULL) {
                         if (confirm[0] == 'y' || confirm[0] == 'Y') {
-                                _print_banner_goodbye();
+                                print_banner_goodbye();
                                 free_debugger(dbg);
                                 free(confirm);
                                 exit(EXIT_SUCCESS);
@@ -145,6 +139,7 @@ int handle_user_input(debugger *dbg, command_t cmd_type, // NOLINT
                 if (Step(&dbg->dbgee) != 0) {
                         printf(COLOR_RED
                                "Failed to single step.\n" COLOR_RESET);
+                        return PROMPT_USER_AGAIN;
                 }
                 return DONT_PROMPT_USER_AGAIN;
 
@@ -158,6 +153,7 @@ int handle_user_input(debugger *dbg, command_t cmd_type, // NOLINT
         case DBG_STEP_OUT:
                 if (StepOut(&dbg->dbgee) != 0) {
                         printf(COLOR_RED "Failed to step out.\n" COLOR_RESET);
+                        return PROMPT_USER_AGAIN;
                 }
                 return DONT_PROMPT_USER_AGAIN;
 
@@ -381,7 +377,7 @@ int read_and_handle_user_command(debugger *dbg) {
         linenoiseSetCompletionCallback(_completion);
 
         while (true) {
-                printf(COLOR_RESET);
+                printf(COLOR_RESET "\n");
                 (void)(fflush(stdout));
 
                 input = linenoise("<- Z -> ");

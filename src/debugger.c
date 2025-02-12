@@ -99,9 +99,6 @@ static void _process_ld_preload_args(debugger *dbg, int argc, char **argv) {
         if (dbg->preload_list->count == 0) {
                 _add_default_preload_libraries(dbg);
         }
-
-        printf(COLOR_CYAN "Preloaded (%zu) libraries.\n" COLOR_RESET,
-               dbg->preload_list->count);
 }
 
 void init_debugger(debugger *dbg, const char *debuggee_name, int argc,
@@ -140,16 +137,7 @@ void free_debugger(debugger *dbg) {
                                        "Failed to kill child with PID %d: "
                                        "%s\n" COLOR_RESET,
                                        dbg->dbgee.pid, strerror(errno)));
-                } else {
-                        printf(COLOR_CYAN
-                               "Killed child with PID: %d\n" COLOR_RESET,
-                               dbg->dbgee.pid);
                 }
-        } else {
-                printf(
-                    COLOR_YELLOW
-                    "Child with PID %d has already terminated.\n" COLOR_RESET,
-                    dbg->dbgee.pid);
         }
 
         dbg->dbgee.pid = -1;
@@ -190,9 +178,6 @@ int start_debuggee(debugger *dbg) {
         } else {
                 dbg->dbgee.pid = pid;
                 dbg->dbgee.state = RUNNING;
-                printf(COLOR_CYAN
-                       "Child process started with PID %d\n" COLOR_RESET,
-                       dbg->dbgee.pid);
         }
 
         return EXIT_SUCCESS;

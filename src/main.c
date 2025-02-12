@@ -15,18 +15,6 @@ static bool _file_exists(const char *filename) {
         return access(filename, F_OK | R_OK) == 0;
 }
 
-static void _print_banner_hello(void) {
-        printf("\n ╔════════════════════════════════════════════════╗\n");
-        printf(" ║                      (                         ║\n");
-        printf(" ║                      _)_                       ║\n");
-        printf(" ║                     (o o)                      ║\n");
-        printf(" ║                 ooO--(_)--Ooo-                 ║\n");
-        printf(" ║                                                ║\n");
-        printf(" ║              Anti-Anti Debugger Z              ║\n");
-        printf(" ║                      v0.1                      ║\n");
-        printf(" ╚════════════════════════════════════════════════╝\n\n");
-}
-
 int main(int argc, char **argv) {
         if (argc < 2) {
                 (void)(fprintf(stderr,
@@ -56,7 +44,7 @@ int main(int argc, char **argv) {
                 return EXIT_FAILURE;
         }
 
-        _print_banner_hello();
+        print_banner_hello();
 
         debugger dbg;
         init_debugger(&dbg, debuggee_name, argc, argv);
@@ -74,6 +62,8 @@ int main(int argc, char **argv) {
                 free_debugger(&dbg);
                 return EXIT_FAILURE;
         }
+
+        print_banner_goodbye();
 
         free_debugger(&dbg);
         return EXIT_SUCCESS;

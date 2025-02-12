@@ -104,6 +104,24 @@ void print_separator_large(void) {
         printf("\n" COLOR_RESET);
 }
 
+void print_banner_hello(void) {
+        printf("\n ╔════════════════════════════════════════════════╗\n");
+        printf(" ║                      (                         ║\n");
+        printf(" ║                      _)_                       ║\n");
+        printf(" ║                     (o o)                      ║\n");
+        printf(" ║                 ooO--(_)--Ooo-                 ║\n");
+        printf(" ║                                                ║\n");
+        printf(" ║              Anti-Anti Debugger Z              ║\n");
+        printf(" ║                      v0.1                      ║\n");
+        printf(" ╚════════════════════════════════════════════════╝\n");
+}
+
+void print_banner_goodbye(void) {
+        printf("\n ╔════════════════════════════════════════════════╗\n");
+        printf(" ║              Shutting down.......              ║\n");
+        printf(" ╚════════════════════════════════════════════════╝\n\n");
+}
+
 FILE *create_tee_stream(const char *log_filename) {
         FILE *log_file = fopen(log_filename, "w");
         if (log_file == NULL) {

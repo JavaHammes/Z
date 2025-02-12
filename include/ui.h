@@ -20,5 +20,7 @@ typedef struct {
 
 void print_separator(void);
 void print_separator_large(void);
+void print_banner_hello(void);
+void print_banner_goodbye(void);
 
 FILE *create_tee_stream(const char *log_filename);
