@@ -1101,8 +1101,16 @@ void Help(void) {
         print_separator();
         printf(COLOR_GREEN "  set <reg>=<value>   - Set register <reg> to "
                            "<value>\n" COLOR_RESET);
-        printf(COLOR_GREEN "  patch <addr>=<hex>  - Patch memory at <addr> "
-                           "with <hex> opcode bytes\n" COLOR_RESET);
+        printf(COLOR_GREEN "  patch <addr>=<hex>  - Modify memory at <addr> "
+                           "with hex bytes\n" COLOR_RESET);
+        printf(COLOR_GREEN "                        For variables, ensure the "
+                           "hex value matches the type size:\n" COLOR_RESET);
+        printf(COLOR_GREEN
+               "                          4-byte int (little-endian):  patch "
+               "&var=01000000\n" COLOR_RESET);
+        printf(COLOR_GREEN
+               "                          8-byte int (little-endian):  patch "
+               "&var=0100000000000000\n" COLOR_RESET);
         print_separator_large();
 }
 
