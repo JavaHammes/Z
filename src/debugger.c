@@ -342,6 +342,7 @@ int trace_debuggee(debugger *dbg) { // NOLINT
                                                        "event");
                                                 return EXIT_FAILURE;
                                         }
+                                        dbg->dbgee.state = RUNNING;
                                         continue;
                                 }
                         }
@@ -378,8 +379,16 @@ int trace_debuggee(debugger *dbg) { // NOLINT
                                             COLOR_YELLOW
                                             "Ignoring signal %d.\n" COLOR_RESET,
                                             sig);
+                                        if (ptrace(PTRACE_CONT, dbg->dbgee.pid,
+                                                   NULL, NULL) == -1) {
+                                                perror("ptrace CONT to ignore "
+                                                       "signal");
+                                                dbg->dbgee.state = RUNNING;
+                                                return EXIT_FAILURE;
+                                        }
+                                        continue;
                                 }
-                        } else {
+                        } else if (!breakpoint_handled) {
                                 printf(
                                     COLOR_GREEN
                                     "Stepped one instruction.\n" COLOR_RESET);
