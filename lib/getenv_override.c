@@ -8,6 +8,10 @@ void zZz(void) {}
 
 #define MAX_LINE_LENGTH 1024
 
+#define COLOR_RESET "\033[0m"
+#define COLOR_RED "\033[31m"
+#define COLOR_CYAN "\033[36m"
+
 typedef char *(*orig_getenv_f_type)(const char *);
 
 static int _has_zZz(const char *lib_path) {
@@ -26,10 +30,11 @@ char *getenv(const char *name) { // NOLINT
         if (!real_getenv) {
                 void *sym = dlsym(RTLD_NEXT, "getenv");
                 if (!sym) {
-                        (void)(fprintf(
-                            stderr,
-                            "Error in dlsym(RTLD_NEXT, \"getenv\"): %s\n",
-                            dlerror()));
+                        (void)(fprintf(stderr,
+                                       COLOR_RED
+                                       "Error in dlsym(RTLD_NEXT, \"getenv\"): "
+                                       "%s\n" COLOR_RESET,
+                                       dlerror()));
                         return NULL;
                 }
                 union {
@@ -59,9 +64,9 @@ char *getenv(const char *name) { // NOLINT
         if (strcmp(name, "LD_PRELOAD") == 0) {
                 char *temp = strdup(original_value);
                 if (!temp) {
-                        (void)(fprintf(stderr,
+                        (void)(fprintf(stderr, COLOR_RED
                                        "[HOOK] Failed to allocate memory for "
-                                       "LD_PRELOAD copy.\n"));
+                                       "LD_PRELOAD copy.\n" COLOR_RESET));
                         return original_value;
                 }
 
@@ -87,8 +92,11 @@ char *getenv(const char *name) { // NOLINT
                 }
                 free(temp);
 
-                (void)(fprintf(stderr, "[HOOK] Sanitized LD_PRELOAD: '%s'\n",
-                               sanitized_ldpreload));
+                (void)(fprintf(
+                    stderr,
+                    COLOR_CYAN
+                    "[HOOK] Sanitized LD_PRELOAD: '%s'\n" COLOR_RESET,
+                    sanitized_ldpreload));
 
                 return sanitized_ldpreload[0] ? sanitized_ldpreload : NULL;
         }

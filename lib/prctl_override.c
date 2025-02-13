@@ -6,6 +6,9 @@
 
 void zZz(void) {}
 
+#define COLOR_RESET "\033[0m"
+#define COLOR_CYAN "\033[36m"
+
 typedef int (*orig_prctl_f_type)(int option, ...);
 
 int prctl(int option, ...) {
@@ -17,7 +20,9 @@ int prctl(int option, ...) {
         cast.ptr = dlsym(RTLD_NEXT, "prctl");
         orig_prctl_f_type orig_prctl = cast.func;
 
-        (void)(fprintf(stderr, "[HOOK] Intercepted prctl call: option=%d\n",
+        (void)(fprintf(stderr,
+                       COLOR_CYAN
+                       "[HOOK] Intercepted prctl call: option=%d\n" COLOR_RESET,
                        option));
 
         va_list args;

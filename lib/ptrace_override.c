@@ -7,6 +7,9 @@
 
 void zZz(void) {}
 
+#define COLOR_RESET "\033[0m"
+#define COLOR_CYAN "\033[36m"
+
 typedef long (*orig_ptrace_f_type)(enum __ptrace_request request, ...);
 
 long ptrace(enum __ptrace_request request, ...) {
@@ -18,8 +21,11 @@ long ptrace(enum __ptrace_request request, ...) {
         cast.ptr = dlsym(RTLD_NEXT, "ptrace");
         orig_ptrace_f_type orig_ptrace = cast.func;
 
-        (void)(fprintf(stderr, "[HOOK] Intercepted ptrace call: option=%d\n",
-                       request));
+        (void)(fprintf(
+            stderr,
+            COLOR_CYAN
+            "[HOOK] Intercepted ptrace call: option=%d\n" COLOR_RESET,
+            request));
 
         va_list args;
         va_start(args, request);

@@ -1,5 +1,5 @@
 #include <errno.h>
-#include <limits.h>
+#include <linux/limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -114,6 +114,9 @@ int add_library(ld_preload_list *list, const char *lib) {
                 }
         }
 
+        const char *lib_to_add = lib;
+        char resolved_path[PATH_MAX];
+
         if (access(lib, F_OK | R_OK) != 0) {
                 (void)(fprintf(stderr,
                                COLOR_RED
@@ -122,7 +125,21 @@ int add_library(ld_preload_list *list, const char *lib) {
                 return EXIT_FAILURE;
         }
 
-        list->libs[list->count] = strdup(lib);
+        if (strchr(lib, '/') == NULL) {
+                (void)(snprintf(resolved_path, sizeof(resolved_path), "./%s",
+                                lib));
+                if (access(resolved_path, F_OK | R_OK) != 0) {
+                        (void)(fprintf(
+                            stderr,
+                            COLOR_RED
+                            "Cannot find preload library: %s\n" COLOR_RESET,
+                            lib));
+                        return EXIT_FAILURE;
+                }
+                lib_to_add = resolved_path;
+        }
+
+        list->libs[list->count] = strdup(lib_to_add);
         if (!list->libs[list->count]) {
                 (void)(fprintf(
                     stderr,

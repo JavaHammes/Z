@@ -15,7 +15,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 # Specify compiler and flags
 set(CMAKE_C_COMPILER gcc)
 set(CMAKE_C_FLAGS_DEBUG   "-g -O0")
-set(CMAKE_C_FLAGS_RELEASE "-Os")
+set(CMAKE_C_FLAGS_RELEASE "-O2 -DNDEBUG")
 
 # Global compile definitions and options
 add_compile_definitions(_POSIX_C_SOURCE=200809L)

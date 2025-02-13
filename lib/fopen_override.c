@@ -10,6 +10,10 @@ void zZz(void) {}
 #define MAX_LINE_LENGTH 1024
 #define DECIMAL_BASE 10
 
+#define COLOR_RESET "\033[0m"
+#define COLOR_RED "\033[31m"
+#define COLOR_CYAN "\033[36m"
+
 static char *ld_preload_libs[MAX_LIBS] = {NULL};
 typedef FILE *(*orig_fopen_f_type)(const char *, const char *);
 
@@ -33,16 +37,17 @@ static void parse_ld_preload(void) {
 
         const char *ld_preload = getenv("LD_PRELOAD");
         if (!ld_preload || !*ld_preload) {
-                (void)(fprintf(stderr,
-                               "[HOOK] LD_PRELOAD is not set or empty.\n"));
+                (void)(fprintf(
+                    stderr, COLOR_RED
+                    "[HOOK] LD_PRELOAD is not set or empty.\n" COLOR_RESET));
                 return;
         }
 
         char *temp = strdup(ld_preload);
         if (!temp) {
-                (void)(fprintf(
-                    stderr,
-                    "[HOOK] Failed to allocate memory for LD_PRELOAD copy.\n"));
+                (void)(fprintf(stderr,
+                               COLOR_RED "[HOOK] Failed to allocate memory for "
+                                         "LD_PRELOAD copy.\n" COLOR_RESET));
                 return;
         }
 
@@ -64,9 +69,11 @@ FILE *fopen(const char *__restrict__filename, const char *__modes) { // NOLINT
         if (!real_fopen) {
                 void *handle = dlsym(RTLD_NEXT, "fopen");
                 if (!handle) {
-                        (void)(fprintf(stderr,
-                                       "[HOOK] Error in dlsym for fopen: %s\n",
-                                       dlerror()));
+                        (void)(fprintf(
+                            stderr,
+                            COLOR_RED
+                            "[HOOK] Error in dlsym for fopen: %s\n" COLOR_RESET,
+                            dlerror()));
                         return NULL;
                 }
                 union {
@@ -79,16 +86,18 @@ FILE *fopen(const char *__restrict__filename, const char *__modes) { // NOLINT
 
         parse_ld_preload();
 
-        (void)(fprintf(stderr,
-                       "[HOOK] fopen called with file=\"%s\", mode=\"%s\"\n",
-                       __restrict__filename, __modes));
+        (void)(fprintf(
+            stderr,
+            COLOR_CYAN
+            "[HOOK] fopen called with file=\"%s\", mode=\"%s\"\n" COLOR_RESET,
+            __restrict__filename, __modes));
 
         if (strstr(__restrict__filename, "/proc/self/status")) {
                 FILE *real_status = real_fopen(__restrict__filename, __modes);
                 if (!real_status) {
-                        (void)(fprintf(
-                            stderr,
-                            "[HOOK] Unable to open real /proc/self/status\n"));
+                        (void)(fprintf(stderr, COLOR_RED
+                                       "[HOOK] Unable to open real "
+                                       "/proc/self/status\n" COLOR_RESET));
                         return NULL;
                 }
 
@@ -115,9 +124,9 @@ FILE *fopen(const char *__restrict__filename, const char *__modes) { // NOLINT
         if (strstr(__restrict__filename, "/proc/self/maps")) {
                 FILE *real_maps = real_fopen(__restrict__filename, __modes);
                 if (!real_maps) {
-                        (void)(fprintf(
-                            stderr,
-                            "[HOOK] Unable to open real /proc/self/maps\n"));
+                        (void)(fprintf(stderr, COLOR_RED
+                                       "[HOOK] Unable to open real "
+                                       "/proc/self/maps\n" COLOR_RESET));
                         return NULL;
                 }
 
