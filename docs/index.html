@@ -1,0 +1,581 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Z x86_64 Linux Anti-Anti-Debugger Documentation</title>
+  <link rel="stylesheet" href="style.css" />
+  <meta name="description" content="Extensive documentation for the x86_64 Linux Anti-Anti-Debugger, a C-based tool designed to bypass anti-debugging techniques on Linux." />
+</head>
+<body>
+  <header>
+    <div class="container">
+      <h1>Z x86_64 Linux Anti-Anti-Debugger</h1>
+      <p class="tagline">A robust C-based tool to counteract anti-debugging techniques on Linux.</p>
+      <nav>
+        <ul>
+          <li><a href="#introduction">Introduction</a></li>
+          <li><a href="#features">Features</a></li>
+          <li><a href="#installation">Installation</a></li>
+          <li><a href="#architecture">Architecture</a></li>
+          <li><a href="#usage">Usage</a></li>
+          <li><a href="#api">API Reference</a></li>
+          <li><a href="#advanced">Advanced Topics</a></li>
+          <li><a href="#custom-ld-preload">Custom LD_PRELOAD Libraries</a></li>
+          <li><a href="#troubleshooting">Troubleshooting</a></li>
+          <li><a href="#performance">Performance & Limitations</a></li>
+          <li><a href="#developer">Developer Guide</a></li>
+          <li><a href="#faq">FAQ</a></li>
+          <li><a href="#contributing">Contributing</a></li>
+          <li><a href="#license">License</a></li>
+        </ul>
+      </nav>
+    </div>
+  </header>
+
+  <main class="container">
+    <!-- Introduction -->
+    <section id="introduction">
+      <h2>Introduction</h2>
+      <p>
+        The <strong>Z x86_64 Linux Anti-Anti-Debugger</strong> is a powerful debugging tool written in C,
+        engineered specifically to bypass anti-debugging techniques employed by many Linux binaries.
+        Traditional debuggers can be detected and countered by malware or protected software.
+        This tool circumvents those mechanisms using a combination of advanced <code>ptrace</code> strategies,
+        hardware breakpoint management, dynamic memory patching, and the injection of custom LD_PRELOAD libraries.
+      </p>
+      <p>
+        This documentation is intended for users and developers who wish to understand the inner workings,
+        extend the capabilities, or contribute to the project. It covers the overall architecture, installation and build instructions,
+        detailed usage examples, an exhaustive API reference, and advanced troubleshooting tips.
+      </p>
+      <p>
+        Whether you are using the tool to debug a challenging application or to study advanced debugging techniques,
+        this guide will provide you with all the necessary details.
+      </p>
+    </section>
+
+    <!-- Features -->
+    <section id="features">
+      <h2>Features</h2>
+      <p>The Z anti-anti-debugger comes packed with advanced features, including:</p>
+      <ul>
+        <li><strong>Bypass Anti-Debugging:</strong> Specifically designed to counter common anti-debugging measures.</li>
+        <li><strong>Full Process Control:</strong> Leverages <code>ptrace</code> to manipulate target processes at a low level.</li>
+        <li>
+          <strong>Breakpoint &amp; Watchpoint Management:</strong>
+          <ul>
+            <li>Software Breakpoints using <code>INT3</code> instruction patching with restoration of original code.</li>
+            <li>Hardware Breakpoints via debug registers (DR0–DR3) without modifying code.</li>
+            <li>Memory Watchpoints to monitor read/write operations on specific addresses.</li>
+            <li>Catchpoints to intercept signals and process events (fork, clone, exec, exit).</li>
+          </ul>
+        </li>
+        <li><strong>Instruction Stepping:</strong> Support for single stepping, stepping over function calls, and stepping out of functions.</li>
+        <li><strong>Memory Inspection &amp; Patching:</strong> Dump memory contents and dynamically patch code at runtime.</li>
+        <li><strong>Disassembly Support:</strong> Integration with the Capstone disassembly engine to display human-readable assembly.</li>
+        <li>
+          <strong>Symbol Resolution &amp; Backtracing:</strong>
+          <ul>
+            <li>ELF symbol parsing to resolve function names and addresses.</li>
+            <li>Generate call stack backtraces.</li>
+          </ul>
+        </li>
+        <li>
+          <strong>Dynamic LD_PRELOAD Injection:</strong> Inject custom libraries to intercept critical system calls (e.g., <code>fopen</code>, <code>getenv</code>, <code>prctl</code>, <code>setvbuf</code>), thereby evading anti-debugging traps.
+        </li>
+        <li><strong>User-Friendly CLI:</strong> Command-line interface with color-coded output and extensive commands for complete control.</li>
+      </ul>
+    </section>
+
+    <section id="installation">
+      <h2>Installation &amp; Build Instructions</h2>
+      <h3>Step 1: Clone the Repository</h3>
+      <pre><code>git clone --recurse-submodules https://github.com/JavaHammes/Z.git</code></pre>
+      <h3>Step 2: Install Dependencies</h3>
+      <p>For Ubuntu/Debian-based systems, run:</p>
+      <pre><code>sudo apt-get update
+sudo apt-get install libcapstone-dev libcriterion-dev libelf-dev build-essential cmake gcc pkg-config</code></pre>
+      <h3>Step 3: Build the Project</h3>
+      <p>You can use CMake to configure and build:</p>
+      <pre><code>cmake -B build
+cmake --build build
+</code></pre>
+      <p>
+        The build output should generate an executable named <code>z</code>.
+      </p>
+      <h3>Step 4: Running the Debugger</h3>
+      <p>
+        To start a debugging session, run:
+      </p>
+      <pre><code>cd bin/
+./z target_executable [optional_ld_preload_libraries...]</code></pre>
+      <p>
+        If you do not supply custom LD_PRELOAD libraries, the tool automatically loads a default set (e.g., <code>libptrace_intercept.so</code>, <code>libfopen_intercept.so</code>, etc.).
+      </p>
+    </section>
+
+    <section id="architecture">
+      <h2>Project Architecture</h2>
+      <h3>High-Level Overview</h3>
+      <p>
+        The Z anti-anti-debugger is divided into several interdependent modules:
+      </p>
+      <ul>
+        <li>
+          <strong><code>debuggee.c</code></strong>: Implements low-level ptrace wrappers, memory access routines, register manipulation, breakpoint insertion/removal, disassembly functions, and symbol resolution.
+        </li>
+        <li>
+          <strong><code>debuggger.c</code></strong>: Contains the core debugger loop, process management, event handling (signals, ptrace events), and LD_PRELOAD configuration. It orchestrates the overall debugging session.
+        </li>
+      </ul>
+      <h3>Detailed Component Relationships</h3>
+      <p>
+        The debugger spawns a child process that executes the target binary with <code>ptrace(PTRACE_TRACEME)</code> and sets the <code>LD_PRELOAD</code> environment variable. The parent process (debugger) then monitors and controls the child process, responding to events (e.g., breakpoints, signals) via a carefully structured main loop.
+      </p>
+      <p>
+        Breakpoint handling is a two-stage process: first, the tool inserts breakpoints (either software or hardware) by modifying code or registers; then, upon triggering, it restores original instructions and continues execution as specified by the user commands.
+      </p>
+      <p>
+        Additionally, symbol resolution is performed by parsing ELF symbol tables, which enables features such as function address lookup and stack backtracing.
+      </p>
+    </section>
+
+    <section id="usage">
+      <h2>Usage Guide</h2>
+      <h3>Getting Started</h3>
+      <p>
+        To start debugging, run the tool with your target application. For example:
+      </p>
+      <pre><code>./z target_executable</code></pre>
+      <p>
+        You may add custom LD_PRELOAD libraries after the target program’s path to further extend functionality.
+      </p>
+      <h3>Interactive Commands</h3>
+      <p>The debugger supports an extensive set of commands. Some of the key ones include:</p>
+      <ul>
+        <li><code>help</code> – Displays the full list of commands and their usage.</li>
+        <li><code>exit</code> – Terminates the debugging session.</li>
+        <li><code>run</code>  – Starts or resumes execution of the target process.</li>
+        <li><code>step</code> – Executes the next machine instruction (single step).</li>
+        <li><code>over</code> – Steps over function calls by setting temporary breakpoints at return addresses.</li>
+        <li><code>out</code>               – Steps out of the current function.</li>
+        <li><code>skip &lt;n&gt;</code>    – Skips the next <em>n</em> instructions.</li>
+        <li><code>jump &lt;addr&gt;</code> – Sets a temporary breakpoint at a given address and continues execution until hit.</li>
+        <li>
+          Breakpoint commands:
+          <ul>
+            <li><code>break &lt;addr&gt;</code> – Insert a software breakpoint.</li>
+            <li><code>hbreak &lt;addr&gt;</code> – Insert a hardware breakpoint.</li>
+            <li><code>watch &lt;addr&gt;</code> – Set a watchpoint on a memory address.</li>
+            <li><code>catch &lt;sig/event&gt;</code> – Monitor specific signals or process events.</li>
+            <li><code>remove &lt;index&gt;</code> – Remove a breakpoint by its index.</li>
+          </ul>
+        </li>
+        <li>
+          Inspection commands:
+          <ul>
+            <li><code>regs</code> – Display the CPU registers (general and debug registers).</li>
+            <li><code>dump</code> – Dump memory contents around the current instruction pointer.</li>
+            <li><code>dis</code> – Disassemble code at the current execution address using Capstone.</li>
+            <li><code>funcs</code> – List all functions extracted from the ELF symbol tables.</li>
+            <li><code>addr &lt;func_name&gt;</code> – Retrieve the address of a function by name.</li>
+            <li><code>backt</code> – Generate a full backtrace of the call stack.</li>
+          </ul>
+        </li>
+        <li>
+          Modification commands:
+          <ul>
+            <li><code>set &lt;reg&gt;=&lt;value&gt;</code> – Modify a register value.</li>
+            <li><code>patch &lt;addr&gt;=&lt;hex&gt;</code> – Patch memory with new opcodes.</li>
+          </ul>
+        </li>
+      </ul>
+      <h3>Example Session</h3>
+      <p>The following is an example of a debugging session:</p>
+      <pre><code># Start the debugger with a target application
+./z target_executable
+
+# At the interactive prompt:
+help                  # Show available commands
+break 0x400123        # Set a software breakpoint at address 0x400123
+run                   # Start the application
+regs                  # Dump registers after hitting a breakpoint
+dis                   # Disassemble code at the current instruction pointer
+step                  # Single-step through instructions
+backt                 # Generate a backtrace
+exit                  # End the debugging session</code></pre>
+    </section>
+
+    <section id="api">
+      <h2>Detailed API Reference</h2>
+      <p>
+        This section provides a comprehensive breakdown of the primary functions in the codebase.
+        The API is divided into two major groups: Debuggee Functions and Debugger Functions.
+      </p>
+      <h3>Debuggee Functions (<code>src/debuggee.c</code>)</h3>
+      <h4>Process Control &amp; Execution</h4>
+      <ul>
+        <li>
+          <code>int Run(debuggee *dbgee)</code>
+          <p>Starts or resumes the target process. If temporary breakpoints exist, it handles their removal and resumes execution via <code>ptrace(PTRACE_CONT)</code>.</p>
+        </li>
+        <li>
+          <code>int Continue(debuggee *dbgee)</code>
+          <p>Continues execution after a stop (e.g., after handling a breakpoint or signal).</p>
+        </li>
+        <li>
+          <code>int Step(debuggee *dbgee)</code>
+          <p>Performs a single instruction step using <code>ptrace(PTRACE_SINGLESTEP)</code>.</p>
+        </li>
+        <li>
+          <code>int StepOver(debuggee *dbgee)</code>
+          <p>Steps over function calls by setting a temporary breakpoint at the return address before executing the call.</p>
+        </li>
+        <li>
+          <code>int StepOut(debuggee *dbgee)</code>
+          <p>Steps out of the current function by obtaining the return address from the stack and setting a temporary breakpoint there.</p>
+        </li>
+        <li>
+          <code>int Skip(debuggee *dbgee, const char *arg)</code>
+          <p>Skips a specified number of instructions by repeatedly single-stepping.</p>
+        </li>
+        <li>
+          <code>int Jump(debuggee *dbgee, const char *arg)</code>
+          <p>Sets a temporary breakpoint at a user-specified address (or symbol) and continues execution until that point is reached.</p>
+        </li>
+        <li>
+          <code>int Trace(debuggee *dbgee, const char *arg)</code>
+          <p>Combines jump functionality with single-stepping to trace execution from a given point while disassembling instructions on the fly.</p>
+        </li>
+      </ul>
+      <h4>Register &amp; Memory Inspection</h4>
+      <ul>
+        <li>
+          <code>int Registers(debuggee *dbgee)</code>
+          <p>Retrieves CPU general-purpose registers and debug registers using <code>ptrace(PTRACE_GETREGS)</code> and displays them in a formatted output.</p>
+        </li>
+        <li>
+          <code>int Dump(debuggee *dbgee)</code>
+          <p>Dumps memory starting at the current instruction pointer in both hexadecimal and ASCII formats.</p>
+        </li>
+        <li>
+          <code>int Disassemble(debuggee *dbgee)</code>
+          <p>Utilizes the Capstone disassembly library to convert raw machine code into human-readable assembly instructions.</p>
+        </li>
+      </ul>
+      <h4>Breakpoint Management</h4>
+      <ul>
+        <li>
+          <code>int SetSoftwareBreakpoint(debuggee *dbgee, const char *arg)</code>
+          <p>Inserts an <code>INT3</code>-based breakpoint at a specified address and stores the original instruction byte for later restoration.</p>
+        </li>
+        <li>
+          <code>int SetHardwareBreakpoint(debuggee *dbgee, const char *arg)</code>
+          <p>Configures an available CPU debug register (DR0–DR3) to monitor a given address without modifying code.</p>
+        </li>
+        <li>
+          <code>int SetWatchpoint(debuggee *dbgee, const char *arg)</code>
+          <p>Sets a watchpoint on a memory address to monitor read/write access, using hardware debug registers.</p>
+        </li>
+        <li>
+          <code>int SetCatchpoint(debuggee *dbgee, const char *arg)</code>
+          <p>Allows setting of catchpoints to intercept specific signals or process events (e.g., fork, exec, exit).</p>
+        </li>
+        <li>
+          <code>int RemoveBreakpoint(debuggee *dbgee, const char *arg)</code>
+          <p>Removes an active breakpoint (software or hardware) and restores any modified code or registers.</p>
+        </li>
+      </ul>
+      <h4>Dynamic Patching &amp; Symbol Resolution</h4>
+      <ul>
+        <li>
+          <code>int Patch(debuggee *dbgee, const char *arg)</code>
+          <p>Patches memory by replacing instructions at a given address with new hexadecimal opcodes.</p>
+        </li>
+        <li>
+          <code>int Address(debuggee *dbgee, const char *arg)</code>
+          <p>Resolves the absolute address of a symbol by parsing ELF symbol tables, which is useful for setting breakpoints by function name.</p>
+        </li>
+        <li>
+          <code>unsigned long get_entry_absolute_address(debuggee *dbgee)</code>
+          <p>Determines the target process’s entry point, properly handling Position Independent Executables (PIE).</p>
+        </li>
+      </ul>
+      <h4>Breakpoint Handlers</h4>
+      <ul>
+        <li>
+          <code>int handle_software_breakpoint(debuggee *dbgee, size_t bp_index)</code>
+          <p>When a software breakpoint is hit, this function restores the original instruction, adjusts the instruction pointer, and optionally re-inserts the breakpoint if it is persistent.</p>
+        </li>
+        <li>
+          <code>int handle_hardware_breakpoint(debuggee *dbgee, size_t bp_index)</code>
+          <p>Processes hardware breakpoint events, printing diagnostic information to the user.</p>
+        </li>
+        <li>
+          <code>int handle_catchpoint_signal(debuggee *dbgee, size_t bp_index)</code>
+          <p>Handles caught signals by determining if they correspond to user-defined catchpoints and dispatching the appropriate action.</p>
+        </li>
+        <li>
+          <code>int handle_catchpoint_event(debuggee *dbgee, size_t bp_index)</code>
+          <p>Handles process events (e.g., fork, exec) when catchpoints are configured.</p>
+        </li>
+        <li>
+          <code>int handle_watchpoint(debuggee *dbgee, size_t bp_index)</code>
+          <p>Responds to watchpoint triggers and informs the user about memory access events.</p>
+        </li>
+      </ul>
+
+      <h3>Debugger Functions (<code>src/debuggger.c</code>)</h3>
+      <h4>Initialization &amp; Setup</h4>
+      <ul>
+        <li>
+          <code>void init_debugger(debugger *dbg, const char *debuggee_name, int argc, char **argv)</code>
+          <p>Initializes the debugger state including the breakpoint handler, the LD_PRELOAD library list, and processes any command-line arguments for custom library injection.</p>
+        </li>
+        <li>
+          <code>void free_debugger(debugger *dbg)</code>
+          <p>Cleans up resources, terminates the target process if necessary, and resets the debugger state.</p>
+        </li>
+      </ul>
+      <h4>Process Launch &amp; Main Loop</h4>
+      <ul>
+        <li>
+          <code>int start_debuggee(debugger *dbg)</code>
+          <p>Forks a new process, sets up the <code>ptrace</code> environment, configures LD_PRELOAD, and starts the target application.</p>
+        </li>
+        <li>
+          <code>int trace_debuggee(debugger *dbg)</code>
+          <p>Implements the core debugging loop. It waits for <code>ptrace</code> events (e.g., breakpoints, signals), dispatches them to the appropriate handlers, and manages the overall session flow.</p>
+        </li>
+      </ul>
+      <h4>Utility Functions</h4>
+      <ul>
+        <li>
+          <code>static int _add_default_preload_libraries(debugger *dbg)</code>
+          <p>If no custom libraries are provided, this function adds a default set of LD_PRELOAD libraries to intercept system calls.</p>
+        </li>
+        <li>
+          <code>static void _process_ld_preload_args(debugger *dbg, int argc, char **argv)</code>
+          <p>Parses command-line arguments to include additional LD_PRELOAD libraries, enhancing the tool’s functionality.</p>
+        </li>
+      </ul>
+    </section>
+
+    <!-- Advanced Topics -->
+    <section id="advanced">
+      <h2>Advanced Topics</h2>
+      <h3>Bypassing Anti-Debugging Techniques</h3>
+      <p>
+        Many modern applications employ anti-debugging techniques such as timing checks, interrupt detection,
+        and environment scanning to thwart traditional debuggers. This tool combats these methods by:
+      </p>
+      <ul>
+        <li>Injecting custom LD_PRELOAD libraries that override common system functions (like <code>fopen</code>, <code>getenv</code>, and <code>prctl</code>) to hide debugging artifacts.</li>
+        <li>Utilizing hardware breakpoints, which are far less detectable since they do not require modifying code.</li>
+        <li>Carefully managing signal and event handling to avoid leaving traces that anti-debug mechanisms could detect.</li>
+      </ul>
+      <h3>Breakpoint Strategies &amp; Single-Stepping</h3>
+      <p>
+        Breakpoint insertion is central to the tool’s operation:
+      </p>
+      <ul>
+        <li>
+          <strong>Software Breakpoints:</strong> The tool patches the code by replacing an instruction with the <code>INT3</code> opcode (0xCC) and preserves the original byte for later restoration.
+        </li>
+        <li>
+          <strong>Hardware Breakpoints:</strong> By using available debug registers (DR0–DR3) and configuring DR7 appropriately, the tool can monitor addresses without modifying the program code.
+        </li>
+        <li>
+          <strong>Single-Stepping:</strong> Precision control is achieved using <code>ptrace(PTRACE_SINGLESTEP)</code>—critical when re-inserting breakpoints after a hit or when tracing execution flow.
+        </li>
+      </ul>
+      <h3>Backtracing &amp; Symbol Resolution</h3>
+      <p>
+        Using ELF symbol tables, the tool maps function names to their addresses. This allows:
+      </p>
+      <ul>
+        <li>Displaying function names alongside addresses in the backtrace.</li>
+        <li>Providing meaningful output even for stripped binaries by computing offsets relative to module base addresses.</li>
+      </ul>
+    </section>
+
+    <section id="custom-ld-preload">
+      <h2>Custom LD_PRELOAD Libraries</h2>
+      <p>
+        Z can be extended by supplying your own custom LD_PRELOAD libraries. These libraries allow you to override
+        system functions (e.g., <code>fopen</code>, <code>getenv</code>, <code>prctl</code>) to tailor the behavior of the target
+        process and further conceal the presence of a debugger.
+      </p>
+      <p>
+        <strong>Important:</strong> Every custom LD_PRELOAD library <em>must</em> include the following marker function:
+      </p>
+      <pre><code>void zZz() {}</code></pre>
+      <p>
+        This marker acts as a signature, signaling to Z’s default preload libraries that your library is custom—especially
+        crucial when combining default and custom libraries. For example, in the <code>fopen</code> override, the library processes
+        files such as <code>/proc/self/maps</code> by filtering out only those lines corresponding to libraries that include the
+        <code>zZz</code> marker. This ensures that any of the debuggee’s own libraries aren’t mistakenly filtered out, which could alert
+        the target process to the debugger’s presence.
+      </p>
+      <p>
+        Without this marker, your custom library may not integrate properly, potentially leading to unfiltered behavior or unexpected side effects
+        in your overrides.
+      </p>
+      <h3>Example Custom Library</h3>
+      <p>
+        Below is an alternative example for a custom LD_PRELOAD library that overrides the <code>gettimeofday</code> function—this function is not used by the default libraries:
+      </p>
+      <pre><code>#include &lt;sys/time.h&gt;
+#include &lt;dlfcn.h&gt;
+
+// Marker function required for custom libraries.
+void zZz() {}
+
+// Custom gettimeofday override.
+int gettimeofday(struct timeval *tv, struct timezone *tz) {
+    // Retrieve the original gettimeofday function.
+    int (*orig_gettimeofday)(struct timeval*, struct timezone*) = dlsym(RTLD_NEXT, "gettimeofday");
+
+    int ret = orig_gettimeofday(tv, tz);
+
+    // Your custom implementation to modify the return value.
+
+    return ret;
+}
+    </code></pre>
+      <h3>Compiling Your Custom Library</h3>
+      <p>
+        To compile your custom library, use the following command:
+      </p>
+      <pre><code>gcc -shared -fPIC -o libcustom.so custom.c -ldl</code></pre>
+      <p>
+        Here:
+        <br><em>-shared</em> creates a shared library.
+        <br><em>-fPIC</em> generates position-independent code necessary for shared libraries.
+        <br><em>-ldl</em> links against the dynamic linking library.
+      </p>
+      <p>
+        After compiling, supply your custom library as an additional argument when launching Z:
+      </p>
+      <pre><code>./z target_executable ./libcustom.so</code></pre>
+      <p>
+        Your custom library will be appended to the LD_PRELOAD list, thereby extending the debugger’s functionality.
+      </p>
+    </section>
+
+    <section id="troubleshooting">
+      <h2>Troubleshooting</h2>
+      <h3>Common Issues</h3>
+      <ul>
+        <li>
+          <strong>ptrace Failures:</strong> Ensure that your user account has sufficient privileges. On some systems, security modules like SELinux or AppArmor might block ptrace operations.
+        </li>
+        <li>
+          <strong>LD_PRELOAD Problems:</strong> Verify that default LD_PRELOAD libraries are present in the expected directory. If you supply custom libraries, ensure they are compiled correctly.
+        </li>
+        <li>
+          <strong>Breakpoint Not Triggering:</strong> Confirm that the address is valid, mapped, and executable.
+        </li>
+        <li>
+          <strong>Disassembly Issues:</strong> If Capstone fails to disassemble code, ensure that the target architecture is correctly specified (x86_64) and that the binary is not corrupted.
+        </li>
+      </ul>
+    </section>
+
+    <section id="performance">
+      <h2>Performance &amp; Limitations</h2>
+      <h3>Performance Considerations</h3>
+      <p>
+        Due to the overhead of <code>ptrace</code> and the need for frequent system calls (especially during single-stepping),
+        debugging sessions can be slower than normal execution. Consider these factors:
+      </p>
+      <ul>
+        <li>Single-stepping can significantly slow down the target process; use it selectively.</li>
+        <li>Hardware breakpoints are less intrusive but are limited in number by the CPU.</li>
+      </ul>
+      <h3>Known Limitations</h3>
+      <ul>
+        <li>The tool is designed for x86_64 Linux and may require modifications to work on other architectures.</li>
+        <li>Some anti-debugging techniques (e.g., timing-based or obfuscation) are not bypassed.</li>
+        <li>High-security environments may restrict ptrace operations regardless of user privileges.</li>
+      </ul>
+    </section>
+
+    <section id="developer">
+      <h2>Developer Guide</h2>
+      <h3>Code Structure &amp; Conventions</h3>
+      <p>
+        The project follows standard C99 conventions.
+        When contributing, adhere to the following guidelines:
+      </p>
+      <ul>
+        <li>Follow the existing naming conventions (e.g., <code>dbgee</code> for debuggee structures, <code>dbg</code> for debugger structures).</li>
+        <li>Document new functions and changes with clear comments.</li>
+        <li>Add tests or example usage if modifying core functionality.</li>
+      </ul>
+      <h3>Extending Functionality</h3>
+      <p>
+        Developers are encouraged to add new features, such as:
+      </p>
+      <ul>
+        <li>Additional LD_PRELOAD libraries for intercepting more system calls.</li>
+        <li>Enhanced user interface improvements (e.g., support for scripting commands).</li>
+        <li>Support for more architectures or operating systems.</li>
+        <li>Better error handling and logging mechanisms.</li>
+      </ul>
+    </section>
+
+    <!-- FAQ -->
+    <section id="faq">
+      <h2>Frequently Asked Questions (FAQ)</h2>
+      <h3>Q: What makes this tool an Anti-Anti-Debugger?</h3>
+      <p>
+        <strong>A:</strong> It is engineered specifically to bypass common anti-debugging techniques by intercepting system calls,
+        using non-invasive hardware breakpoints, and carefully managing signal and event handling to avoid detection.
+      </p>
+      <h3>Q: Do I need root privileges to use it?</h3>
+      <p>
+        <strong>A:</strong> Not necessarily, but you must have sufficient privileges to use <code>ptrace</code> and access certain <code>/proc</code> interfaces.
+      </p>
+      <h3>Q: Can I add my own LD_PRELOAD libraries?</h3>
+      <p>
+        <strong>A:</strong> Yes, you can supply custom libraries via command-line arguments. These libraries will be appended to the LD_PRELOAD list.
+      </p>
+      <h3>Q: Does it work with all x86_64 binaries?</h3>
+      <p>
+        <strong>A:</strong> The tool is designed for standard x86_64 Linux binaries. However, heavily obfuscated or highly protected binaries may still employ techniques that limit debugging.
+      </p>
+    </section>
+
+    <section id="contributing">
+      <h2>Contributing Guidelines</h2>
+      <p>
+        Contributions to Z are very welcome! Please follow these steps:
+      </p>
+      <ol>
+        <li>Fork the repository on GitHub.</li>
+        <li>Create a new branch for your feature or bug fix.</li>
+        <li>Ensure that your code adheres to the existing coding conventions.</li>
+        <li>Add tests for any new functionality where applicable.</li>
+        <li>Submit a pull request with a clear description of your changes.</li>
+      </ol>
+    </section>
+
+    <section id="license">
+      <h2>License</h2>
+      <p>
+        This project is licensed under the <a href="LICENSE" target="_blank">MIT License</a>.
+        You are free to use, modify, and distribute the code in accordance with the license terms.
+      </p>
+    </section>
+  </main>
+
+  <footer>
+    <div class="container">
+      <p>© 2025 Z x86_64 Linux Anti-Anti-Debugger. All Rights Reserved.</p>
+      <p>Designed and maintained by <a href="https://github.com/JavaHammes target="_blank">JavaHammes</a></p>
+    </div>
+  </footer>
+</body>
+</html>

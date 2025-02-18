@@ -1,0 +1,121 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  background: #f7f7f7;
+  color: #333;
+  line-height: 1.6;
+}
+
+.container {
+  width: 90%;
+  max-width: 1000px;
+  margin: 0 auto;
+  padding: 20px;
+}
+
+/* Header */
+header {
+  background: #2c3e50;
+  color: #ecf0f1;
+  padding: 20px 0;
+  margin-bottom: 20px;
+  text-align: center;
+}
+
+header h1 {
+  font-size: 2.8rem;
+  margin-bottom: 10px;
+}
+
+header .tagline {
+  font-size: 1.3rem;
+  margin-bottom: 15px;
+  font-style: italic;
+}
+
+nav ul {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+nav ul li {
+  margin: 5px 10px;
+}
+
+nav ul li a {
+  color: #ecf0f1;
+  text-decoration: none;
+  font-weight: bold;
+  transition: color 0.2s ease-in-out;
+}
+
+nav ul li a:hover {
+  color: #f39c12;
+}
+
+main {
+  background: #fff;
+  padding: 30px;
+  border-radius: 5px;
+  box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+  margin-bottom: 40px;
+}
+
+main section {
+  margin-bottom: 40px;
+}
+
+main h2 {
+  font-size: 2rem;
+  margin-bottom: 15px;
+  border-bottom: 2px solid #2c3e50;
+  padding-bottom: 5px;
+  color: #2c3e50;
+}
+
+main h3 {
+  font-size: 1.6rem;
+  margin: 20px 0 10px;
+  color: #34495e;
+}
+
+p {
+  margin-bottom: 15px;
+  text-align: justify;
+}
+
+ul, ol {
+  margin-left: 20px;
+  margin-bottom: 15px;
+}
+
+pre {
+  background: #ecf0f1;
+  padding: 15px;
+  border-radius: 4px;
+  overflow-x: auto;
+  margin-bottom: 15px;
+  font-size: 0.95rem;
+}
+
+code {
+  font-family: Consolas, 'Courier New', monospace;
+  background: #ecf0f1;
+  padding: 2px 4px;
+  border-radius: 3px;
+}
+
+footer {
+  text-align: center;
+  padding: 20px 0;
+  border-top: 1px solid #ccc;
+  color: #777;
+  background: #f7f7f7;
+}
