@@ -4,7 +4,7 @@ A debugger designed to bypass anti-debugging mechanisms with clear, precise cont
 
 ## Overview
 
-Modern applications often implement advanced techniques to hinder debugging. Z Anti-Anti-Debugger is built to overcome these measures using a direct approach. Each command is designed to provide explicit control over the target program’s execution without unnecessary complexity.
+Modern applications often implement advanced techniques to hinder debugging. Z Anti-Anti-Debugger is built to overcome these measures using a direct approach. Each command is designed to provide explicit control over the target program’s execution without unnecessary complexity. Documentation: [https://javahammes.github.io/Z/](https://javahammes.github.io/Z/)
 
 ## Build & Run
 
