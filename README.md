@@ -52,7 +52,7 @@ You can extend Z by supplying your own LD_PRELOAD libraries. **Important**: Each
 ```C
 void zZz() {}
 ```
-This marker acts as a signature, signaling to Z’s default preload libraries that your library is custom—especially crucial when combining default and custom libraries.
+This marker acts as a signature, signaling to Z’s default preload libraries that your library is custom, especially crucial when combining default and custom libraries.
 
 For instance, in the `fopen` override, when processing files like `/proc/self/maps`, the library filters only the lines corresponding to libraries that include the **zZz** marker. This ensures that any of the debuggee’s own libraries present in `/proc/self/maps` aren’t mistakenly filtered out (which could alert the debuggee to the presence of a debugger). Without this marker, your custom library might not integrate properly, potentially leading to unfiltered or unexpected behavior in your `fopen` or `getenv` overrides.
 
